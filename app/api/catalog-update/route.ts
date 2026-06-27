@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { profiles } from "@/lib/schema";
 import { eq } from "drizzle-orm";
@@ -37,80 +36,146 @@ function normalizeSections(value: unknown): Section[] {
   return SECTIONS.includes(value as Section) ? [value as Section] : [];
 }
 
+function categoryName(category: Record<string, unknown>) {
+  return String(category.category_name ?? category.name ?? category.category_id ?? "Unknown category");
+}
+
+function writeEvent(controller: ReadableStreamDefaultController, encoder: TextEncoder, event: Record<string, unknown>) {
+  controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+}
+
 export async function POST(request: Request) {
-  try {
-    const { profileId, section } = await request.json();
-    const sections = normalizeSections(section);
-    if (!profileId || sections.length === 0) {
-      return NextResponse.json({ error: "Invalid update request" }, { status: 400 });
-    }
+  const encoder = new TextEncoder();
+  const { profileId, section } = await request.json();
 
-    const [profile] = await db
-      .select()
-      .from(profiles)
-      .where(eq(profiles.id, profileId));
-
-    if (!profile) {
-      return NextResponse.json({ error: "Profile not found" }, { status: 404 });
-    }
-
-    const serverUrl = profile.servers[profile.activeServerIndex];
-    if (!serverUrl) {
-      return NextResponse.json({ error: "No server configured" }, { status: 400 });
-    }
-
-    const summary: Record<string, { categories: number; streams: number; failures: number }> = {};
-
-    for (const current of sections) {
-      const actions = ACTIONS[current];
-      const categories = await fetchXc<Record<string, unknown>[]>(
-        serverUrl,
-        actions.categories,
-        profile.username,
-        profile.password,
-      );
-      const categoryRows = Array.isArray(categories) ? categories : [];
-      await writeCachedXcData(
-        { profileId, serverUrl, action: actions.categories },
-        categoryRows,
-      );
-
-      let streamCount = 0;
-      let failures = 0;
-      for (const category of categoryRows) {
-        const categoryId = String(category.category_id ?? "");
-        if (!categoryId) continue;
+  return new Response(
+    new ReadableStream({
+      async start(controller) {
         try {
-          const streams = await fetchXc<Record<string, unknown>[]>(
-            serverUrl,
-            actions.streams,
-            profile.username,
-            profile.password,
-            { category_id: categoryId },
-          );
-          const streamRows = Array.isArray(streams) ? streams : [];
-          streamCount += streamRows.length;
-          await writeCachedXcData(
-            { profileId, serverUrl, action: actions.streams, params: { category_id: categoryId } },
-            streamRows,
-          );
-        } catch {
-          failures += 1;
+          const sections = normalizeSections(section);
+          if (!profileId || sections.length === 0) {
+            writeEvent(controller, encoder, { type: "error", message: "Invalid update request" });
+            controller.close();
+            return;
+          }
+
+          const [profile] = await db
+            .select()
+            .from(profiles)
+            .where(eq(profiles.id, profileId));
+
+          if (!profile) {
+            writeEvent(controller, encoder, { type: "error", message: "Profile not found" });
+            controller.close();
+            return;
+          }
+
+          const serverUrl = profile.servers[profile.activeServerIndex];
+          if (!serverUrl) {
+            writeEvent(controller, encoder, { type: "error", message: "No server configured" });
+            controller.close();
+            return;
+          }
+
+          const summary: Record<string, { categories: number; streams: number; failures: number }> = {};
+
+          for (const current of sections) {
+            const actions = ACTIONS[current];
+            writeEvent(controller, encoder, { type: "section", section: current, message: `Fetching ${current} categories` });
+            const categories = await fetchXc<Record<string, unknown>[]>(
+              serverUrl,
+              actions.categories,
+              profile.username,
+              profile.password,
+            );
+            const categoryRows = Array.isArray(categories) ? categories : [];
+            await writeCachedXcData(
+              { profileId, serverUrl, action: actions.categories },
+              categoryRows,
+            );
+            writeEvent(controller, encoder, {
+              type: "categories",
+              section: current,
+              totalCategories: categoryRows.length,
+              message: `${current}: ${categoryRows.length} categories`,
+            });
+
+            let streamCount = 0;
+            let failures = 0;
+            for (const [index, category] of categoryRows.entries()) {
+              const categoryId = String(category.category_id ?? "");
+              if (!categoryId) continue;
+              const name = categoryName(category);
+              writeEvent(controller, encoder, {
+                type: "category",
+                section: current,
+                index: index + 1,
+                totalCategories: categoryRows.length,
+                categoryId,
+                categoryName: name,
+                message: `${current} ${index + 1}/${categoryRows.length}: ${name}`,
+              });
+              try {
+                const streams = await fetchXc<Record<string, unknown>[]>(
+                  serverUrl,
+                  actions.streams,
+                  profile.username,
+                  profile.password,
+                  { category_id: categoryId },
+                );
+                const streamRows = Array.isArray(streams) ? streams : [];
+                streamCount += streamRows.length;
+                await writeCachedXcData(
+                  { profileId, serverUrl, action: actions.streams, params: { category_id: categoryId } },
+                  streamRows,
+                );
+                writeEvent(controller, encoder, {
+                  type: "categoryDone",
+                  section: current,
+                  index: index + 1,
+                  totalCategories: categoryRows.length,
+                  categoryId,
+                  categoryName: name,
+                  streams: streamRows.length,
+                  message: `${current} ${index + 1}/${categoryRows.length}: ${name} (${streamRows.length} streams)`,
+                });
+              } catch (error) {
+                failures += 1;
+                writeEvent(controller, encoder, {
+                  type: "categoryError",
+                  section: current,
+                  index: index + 1,
+                  totalCategories: categoryRows.length,
+                  categoryId,
+                  categoryName: name,
+                  message: error instanceof Error ? error.message : "Category update failed",
+                });
+              }
+            }
+
+            summary[current] = {
+              categories: categoryRows.length,
+              streams: streamCount,
+              failures,
+            };
+          }
+
+          writeEvent(controller, encoder, { type: "done", success: true, summary });
+          controller.close();
+        } catch (error) {
+          writeEvent(controller, encoder, {
+            type: "error",
+            message: error instanceof Error ? error.message : "Catalogue update failed",
+          });
+          controller.close();
         }
-      }
-
-      summary[current] = {
-        categories: categoryRows.length,
-        streams: streamCount,
-        failures,
-      };
-    }
-
-    return NextResponse.json({ success: true, summary });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Catalogue update failed" },
-      { status: 500 },
-    );
-  }
+      },
+    }),
+    {
+      headers: {
+        "content-type": "application/x-ndjson; charset=utf-8",
+        "cache-control": "no-cache, no-transform",
+      },
+    },
+  );
 }

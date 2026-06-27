@@ -257,8 +257,6 @@ export default function HomePage() {
               activeServerIndex={activeProfile.activeServerIndex}
               onServerChange={handleServerChange}
             />
-            <span className="text-xs text-gray-400">{status}</span>
-            <CatalogUpdateButtons profileId={activeProfile.id} onStatus={setStatus} />
             <button
               onClick={() => setEnglishOnly((v) => !v)}
               className={`rounded px-2 py-0.5 text-xs font-bold transition-colors ${
@@ -270,6 +268,8 @@ export default function HomePage() {
             >
               EN
             </button>
+            <CatalogUpdateButtons profileId={activeProfile.id} onStatus={setStatus} />
+            <span className="text-xs text-gray-400">{status}</span>
           </>
         )}
         <div className="ml-auto flex items-center gap-1">

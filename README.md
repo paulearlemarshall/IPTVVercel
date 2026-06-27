@@ -89,7 +89,7 @@ The top-right DB Log button shows recent database retrieve and upsert activity f
 
 The top-right Account button calls the Xtream account endpoint with no `action` parameter and displays account status, expiry, connection counts, and server details.
 
-The Update buttons traverse the provider catalogue by section. `All` runs Live, VOD, and Series. The section buttons fetch categories, then every category's streams, and write them through the same Neon cache model.
+The Update buttons traverse the provider catalogue by section. `All` runs Live, VOD, and Series. The section buttons fetch categories, then every category's streams, and write them through the same Neon cache model. Progress is streamed back to the header so the current section and category advance while the update runs.
 
 ## EN Filter
 
