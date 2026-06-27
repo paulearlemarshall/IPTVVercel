@@ -8,6 +8,7 @@ import StatsModal from "@/components/StatsModal";
 import StreamTooltip from "@/components/StreamTooltip";
 import { useXCApi } from "@/hooks/useXCApi";
 import { useGroupedCategories } from "@/hooks/useGroupedCategories";
+import { useFilteredStreams } from "@/hooks/useFilteredStreams";
 
 interface Profile {
   id: string;
@@ -29,6 +30,7 @@ export default function HomePage() {
   const [activeProfile, setActiveProfile] = useState<Profile | null>(null);
   const [selectedSection, setSelectedSection] = useState("vod");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [englishOnly, setEnglishOnly] = useState(true);
   const [hover, setHover] = useState<HoverState | null>(null);
   const [hoverMeta, setHoverMeta] = useState<Record<string, unknown> | null>(null);
   const [hoverLoading, setHoverLoading] = useState(false);
@@ -120,8 +122,12 @@ export default function HomePage() {
     [hover],
   );
 
+  const filteredStreams = useFilteredStreams(streams, undefined, englishOnly);
+
   const groupedCategories = useGroupedCategories(
     allCategories[selectedSection] ?? [],
+    undefined,
+    englishOnly,
   );
 
   return (
@@ -137,6 +143,17 @@ export default function HomePage() {
               onServerChange={handleServerChange}
             />
             <span className="text-xs text-gray-400">{status}</span>
+            <button
+              onClick={() => setEnglishOnly((v) => !v)}
+              className={`rounded px-2 py-0.5 text-xs font-bold transition-colors ${
+                englishOnly
+                  ? "bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400"
+                  : "text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+              }`}
+              title="English Only Filter"
+            >
+              EN
+            </button>
           </>
         )}
         <div className="ml-auto flex items-center gap-1">
@@ -161,14 +178,14 @@ export default function HomePage() {
               Loading...
             </p>
           )}
-          {!isLoading && streams.length === 0 && (
+          {!isLoading && filteredStreams.length === 0 && (
             <p className="text-sm text-gray-400 dark:text-gray-500">
               Select a category to browse streams.
             </p>
           )}
-          {streams.length > 0 && (
+          {filteredStreams.length > 0 && (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-              {streams.map((s, i) => (
+              {filteredStreams.map((s, i) => (
                 <div
                   key={(s.stream_id as string) ?? (s.id as string) ?? i}
                   className="relative rounded-lg border border-gray-200 bg-white p-2 transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800"
