@@ -17,8 +17,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Profile not found" }, { status: 404 });
     }
 
+    const serverUrl = profile.servers[profile.activeServerIndex];
+    if (!serverUrl) {
+      return NextResponse.json({ error: "No server configured for profile" }, { status: 400 });
+    }
+
     const authUrl = buildApiUrl(
-      profile.serverUrl,
+      serverUrl,
       "user_info",
       profile.username,
       profile.password,

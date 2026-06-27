@@ -10,7 +10,8 @@ export async function GET() {
       all.map((p) => ({
         id: p.id,
         name: p.name,
-        serverUrl: p.serverUrl,
+        servers: p.servers,
+        activeServerIndex: p.activeServerIndex,
       })),
     );
   } catch {
@@ -21,8 +22,14 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { id, name, serverUrl, username, password } = body;
-    await db.insert(profiles).values({ id, name, serverUrl, username, password });
+    const { id, name, servers, username, password } = body;
+    await db.insert(profiles).values({
+      id,
+      name,
+      servers: servers ?? [],
+      username,
+      password,
+    });
     return NextResponse.json({ success: true }, { status: 201 });
   } catch {
     return NextResponse.json({ error: "Failed to create profile" }, { status: 500 });
@@ -32,8 +39,12 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const { id, favorites } = body;
-    await db.update(profiles).set({ favorites }).where(eq(profiles.id, id));
+    const { id, favorites, servers, activeServerIndex } = body;
+    const update: Record<string, unknown> = {};
+    if (favorites !== undefined) update.favorites = favorites;
+    if (servers !== undefined) update.servers = servers;
+    if (activeServerIndex !== undefined) update.activeServerIndex = activeServerIndex;
+    await db.update(profiles).set(update).where(eq(profiles.id, id));
     return NextResponse.json({ success: true });
   } catch {
     return NextResponse.json({ error: "Failed to update profile" }, { status: 500 });
