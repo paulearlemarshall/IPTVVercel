@@ -61,12 +61,12 @@ export function useXCApi() {
   const metadataCache = useRef<Map<string, Record<string, unknown>>>(new Map());
 
   const proxyRequest = useCallback(
-    async <T>(action: string, profileId: string, params?: Record<string, string>): Promise<ApiResult<T>> => {
+    async <T>(action: string, profileId: string, params?: Record<string, string>, forceRefresh?: boolean): Promise<ApiResult<T>> => {
       try {
         const res = await fetch("/api/xc-proxy", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ profileId, action, params }),
+          body: JSON.stringify({ profileId, action, params, forceRefresh }),
         });
         if (!res.ok) {
           const err = await res.json();
@@ -109,7 +109,7 @@ export function useXCApi() {
   );
 
   const fetchStreams = useCallback(
-    async (section: string, catId: string, profileId: string) => {
+    async (section: string, catId: string, profileId: string, forceRefresh = false) => {
       setIsLoading(true);
       setStatus("Loading streams...");
 
@@ -134,6 +134,7 @@ export function useXCApi() {
             actionMap.vod,
             profileId,
             { category_id: category.category_id },
+            forceRefresh,
           );
 
           if (!result.success) {
@@ -158,7 +159,7 @@ export function useXCApi() {
       }
 
       const params = catId ? { category_id: catId } : undefined;
-      const result = await proxyRequest<Record<string, unknown>[]>(actionMap[section], profileId, params);
+      const result = await proxyRequest<Record<string, unknown>[]>(actionMap[section], profileId, params, forceRefresh);
       if (!result.success) {
         setStatus(`Error: ${result.error}`);
         setIsLoading(false);

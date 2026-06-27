@@ -48,16 +48,25 @@ interface SeriesState {
 
 const SECTIONS = ["live", "vod", "series"];
 
-function getArtwork(stream: Record<string, unknown>) {
+function getArtwork(stream: Record<string, unknown>, section?: string) {
+  // For series tiles, prefer poster images (stream_icon/cover) over the wide backdrop
+  if (section === "series") {
+    const poster =
+      (stream.stream_icon as string) ||
+      (stream.cover as string) ||
+      (stream.movie_image as string);
+    if (poster) return poster;
+  }
+  // VOD & live: prefer stream_icon/cover, backdrop as fallback
+  const poster =
+    (stream.stream_icon as string) ||
+    (stream.cover as string) ||
+    (stream.movie_image as string);
+  if (poster) return poster;
   const backdrop = stream.backdrop_path;
   if (Array.isArray(backdrop) && typeof backdrop[0] === "string") return backdrop[0];
   if (typeof backdrop === "string") return backdrop;
-  return (
-    (stream.stream_icon as string) ||
-    (stream.cover as string) ||
-    (stream.movie_image as string) ||
-    ""
-  );
+  return "";
 }
 
 export default function HomePage() {
@@ -113,6 +122,15 @@ export default function HomePage() {
       if (!activeProfile) return;
       setSelectedCategory(catId);
       fetchStreams(selectedSection, catId, activeProfile.id);
+    },
+    [activeProfile, selectedSection, fetchStreams],
+  );
+
+  const handleCategoryDoubleClick = useCallback(
+    (catId: string) => {
+      if (!activeProfile) return;
+      setSelectedCategory(catId);
+      fetchStreams(selectedSection, catId, activeProfile.id, true);
     },
     [activeProfile, selectedSection, fetchStreams],
   );
@@ -292,6 +310,7 @@ export default function HomePage() {
             groupedCategories={groupedCategories}
             selectedCategory={selectedCategory}
             onCategoryClick={handleCategoryClick}
+            onCategoryDoubleClick={handleCategoryDoubleClick}
           />
         )}
         <div className="flex-1 overflow-y-auto p-4">
@@ -308,7 +327,7 @@ export default function HomePage() {
           {filteredStreams.length > 0 && (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
               {filteredStreams.map((stream, index) => {
-                const artwork = getArtwork(stream);
+                const artwork = getArtwork(stream, selectedSection);
                 return (
                   <div
                     key={(stream.stream_id as string) ?? (stream.series_id as string) ?? (stream.id as string) ?? index}
@@ -372,6 +391,32 @@ export default function HomePage() {
           details={seriesDetail.details}
           isLoading={seriesDetail.isLoading}
           onClose={() => setSeriesDetail(null)}
+          onPlayEpisode={async (episode) => {
+            if (!activeProfile) return;
+            try {
+              const res = await fetch("/api/stream-url", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  profileId: activeProfile.id,
+                  stream: episode,
+                  section: "episode",
+                }),
+              });
+              const data = await res.json();
+              if (data.url) {
+                setSeriesDetail(null);
+                setPlayer({
+                  url: data.url,
+                  proxyUrl: data.proxyUrl,
+                  streamId: String(episode.id ?? episode.stream_id ?? ""),
+                  title: (episode.title ?? episode.name ?? "Episode") as string,
+                });
+              }
+            } catch {
+              /* ignore */
+            }
+          }}
         />
       )}
     </main>

@@ -16,6 +16,7 @@ interface SidebarProps {
   groupedCategories: Record<string, Category[]>;
   selectedCategory: string | null;
   onCategoryClick: (catId: string) => void;
+  onCategoryDoubleClick?: (catId: string) => void;
 }
 
 const SECTION_LABELS: Record<string, string> = {
@@ -31,6 +32,7 @@ export default function Sidebar({
   groupedCategories,
   selectedCategory,
   onCategoryClick,
+  onCategoryDoubleClick,
 }: SidebarProps) {
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
@@ -76,6 +78,7 @@ export default function Sidebar({
                   <button
                     key={cat.category_id}
                     onClick={() => onCategoryClick(cat.category_id)}
+                    onDoubleClick={() => onCategoryDoubleClick?.(cat.category_id)}
                     className={`block w-full truncate px-3 py-1 pl-8 text-left text-sm transition-colors ${
                       selectedCategory === cat.category_id
                         ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"

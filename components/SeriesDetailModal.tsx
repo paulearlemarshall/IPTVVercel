@@ -7,6 +7,7 @@ interface SeriesDetailModalProps {
   details: Record<string, unknown> | null;
   isLoading: boolean;
   onClose: () => void;
+  onPlayEpisode: (episode: Record<string, unknown>) => void;
 }
 
 function getText(value: unknown, fallback = "") {
@@ -93,6 +94,7 @@ export default function SeriesDetailModal({
   details,
   isLoading,
   onClose,
+  onPlayEpisode,
 }: SeriesDetailModalProps) {
   const info = getInfo(stream, details);
   const backdrop = getBackdrop(stream, info);
@@ -159,32 +161,58 @@ export default function SeriesDetailModal({
                       {group.episodes.length} episodes
                     </div>
                   </div>
-                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                    {group.episodes.map((episode, index) => (
-                      <div
-                        key={getText(episode.id) || `${group.season}-${index}`}
-                        className="overflow-hidden rounded border border-white/10 bg-white/5"
-                      >
-                        {episodeImage(episode) && (
-                          <img
-                            src={episodeImage(episode)}
-                            alt=""
-                            className="h-28 w-full object-cover"
-                            onError={(e) => {
-                              (e.currentTarget as HTMLImageElement).style.display = "none";
-                            }}
-                          />
-                        )}
-                        <div className="px-3 py-2">
-                          <div className="text-[11px] uppercase tracking-wide text-gray-400">
-                            Episode {episodeNumber(episode, index)}
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {group.episodes.map((episode, index) => {
+                      const img = episodeImage(episode);
+                      return (
+                        <button
+                          key={getText(episode.id) || `${group.season}-${index}`}
+                          onClick={() => onPlayEpisode(episode)}
+                          className="group relative overflow-hidden rounded border border-white/10 bg-white/5 text-left transition-all hover:border-white/40 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/60"
+                        >
+                          {/* Portrait poster area */}
+                          <div
+                            className="relative w-full overflow-hidden bg-black/40"
+                            style={{ aspectRatio: "2/3" }}
+                          >
+                            {img ? (
+                              <img
+                                src={img}
+                                alt=""
+                                className="h-full w-full object-contain"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLImageElement).style.display = "none";
+                                }}
+                              />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center">
+                                <svg className="h-10 w-10 text-white/20" viewBox="0 0 24 24" fill="currentColor">
+                                  <path d="M8 5v14l11-7z" />
+                                </svg>
+                              </div>
+                            )}
+                            {/* Play overlay on hover */}
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/50">
+                              <svg
+                                className="h-10 w-10 scale-75 text-white opacity-0 drop-shadow-lg transition-all group-hover:scale-100 group-hover:opacity-100"
+                                viewBox="0 0 24 24"
+                                fill="currentColor"
+                              >
+                                <path d="M8 5v14l11-7z" />
+                              </svg>
+                            </div>
                           </div>
-                          <div className="mt-0.5 text-sm font-medium text-white">
-                            {episodeTitle(episode, index)}
+                          <div className="px-3 py-2">
+                            <div className="text-[11px] uppercase tracking-wide text-gray-400">
+                              Episode {episodeNumber(episode, index)}
+                            </div>
+                            <div className="mt-0.5 text-sm font-medium text-white">
+                              {episodeTitle(episode, index)}
+                            </div>
                           </div>
-                        </div>
-                      </div>
-                    ))}
+                        </button>
+                      );
+                    })}
                   </div>
                 </section>
               ))}

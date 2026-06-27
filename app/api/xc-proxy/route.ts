@@ -8,7 +8,7 @@ import { isDbCacheableAction, readCachedXcData, writeCachedXcData } from "@/lib/
 
 export async function POST(request: Request) {
   try {
-    const { profileId, action, params } = await request.json();
+    const { profileId, action, params, forceRefresh } = await request.json();
     const [profile] = await db
       .select()
       .from(profiles)
@@ -31,19 +31,21 @@ export async function POST(request: Request) {
       params,
     );
 
-    if (isDbCacheableAction(action)) {
+    if (!forceRefresh && isDbCacheableAction(action)) {
       const cached = await readCachedXcData({ profileId, serverUrl, action, params });
       if (cached) {
         return NextResponse.json(cached);
       }
     }
 
-    const cached = apiCache.get(apiUrl);
-    if (cached) {
-      if (isDbCacheableAction(action)) {
-        await writeCachedXcData({ profileId, serverUrl, action, params }, cached.data);
+    if (!forceRefresh) {
+      const cached = apiCache.get(apiUrl);
+      if (cached) {
+        if (isDbCacheableAction(action)) {
+          await writeCachedXcData({ profileId, serverUrl, action, params }, cached.data);
+        }
+        return NextResponse.json(cached.data);
       }
-      return NextResponse.json(cached.data);
     }
 
     const res = await fetch(apiUrl, { signal: AbortSignal.timeout(10_000) });
