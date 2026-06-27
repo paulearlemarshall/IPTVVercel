@@ -1,4 +1,4 @@
-import { pgTable, text, jsonb, timestamptz } from "drizzle-orm/pg-core";
+import { pgTable, text, jsonb, timestamp } from "drizzle-orm/pg-core";
 
 export const profiles = pgTable("profiles", {
   id: text("id").primaryKey(),
@@ -7,5 +7,5 @@ export const profiles = pgTable("profiles", {
   username: text("username").notNull(),
   password: text("password").notNull(),
   favorites: jsonb("favorites").$type<string[]>().default([]),
-  createdAt: timestamptz("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
