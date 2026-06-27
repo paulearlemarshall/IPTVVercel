@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
 import mpegts from "mpegts.js";
-import { X, AlertCircle } from "lucide-react";
+import { X, AlertCircle, Copy } from "lucide-react";
 
 interface VideoPlayerProps {
   url: string;
@@ -11,10 +11,18 @@ interface VideoPlayerProps {
   onClose: () => void;
 }
 
+type PlayerMethod = "hls" | "mpegts" | "native" | "unavailable";
+
+const UNSUPPORTED_EXTENSIONS = new Set([
+  "mkv", "avi", "wmv", "flv", "mov", "webm", "ogg", "ogv",
+]);
+
 export default function VideoPlayer({ url, title, onClose }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState({ res: "", speed: "", fps: "" });
+  const [method, setMethod] = useState<PlayerMethod | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -23,6 +31,14 @@ export default function VideoPlayer({ url, title, onClose }: VideoPlayerProps) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  const copyUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* ignore */ }
+  };
 
   useEffect(() => {
     if (!url || !videoRef.current) return;
@@ -35,23 +51,17 @@ export default function VideoPlayer({ url, title, onClose }: VideoPlayerProps) {
 
     const updateStats = () => {
       if (destroyed || !video) return;
-
       const res =
         video.videoWidth && video.videoHeight
           ? `${video.videoWidth}x${video.videoHeight}`
           : "";
-
       let speedStr = "";
       let fpsStr = "";
 
       if (tsInstance && (tsInstance as any).statisticsInfo) {
         const info = (tsInstance as any).statisticsInfo;
-        if (info.speed > 0) {
-          speedStr = `${((info.speed * 8) / 1000).toFixed(2)} Mbps`;
-        }
-        if (info.decodedFrames > 0) {
-          fpsStr = `${info.decodedFrames.toFixed(1)} fps`;
-        }
+        if (info.speed > 0) speedStr = `${((info.speed * 8) / 1000).toFixed(2)} Mbps`;
+        if (info.decodedFrames > 0) fpsStr = `${info.decodedFrames.toFixed(1)} fps`;
       } else if (hlsInstance) {
         if (hlsInstance.bandwidthEstimate) {
           speedStr = `${(hlsInstance.bandwidthEstimate / 1000 / 1000).toFixed(2)} Mbps`;
@@ -61,18 +71,54 @@ export default function VideoPlayer({ url, title, onClose }: VideoPlayerProps) {
           speedStr = `${(level.bitrate / 1000 / 1000).toFixed(2)} Mbps`;
         }
       }
-
       setStats({ res, speed: speedStr, fps: fpsStr });
     };
 
-    const play = async () => {
+    const probeAndPlay = async () => {
       try {
         setError(null);
-        const isM3U8 = url.toLowerCase().includes(".m3u8");
-        const isTS =
-          url.toLowerCase().includes(".ts") || url.includes("output=ts");
+        const lower = url.toLowerCase();
+        const ext = lower.split(".").pop()?.split("?")[0] || "";
+        const isM3U8 = lower.includes(".m3u8") || lower.includes("m3u8");
+        const isTS = lower.includes(".ts") || lower.includes("output=ts");
+        const isMP4 = ext === "mp4";
+
+        let detectedMethod: PlayerMethod = "native";
 
         if (isM3U8) {
+          detectedMethod = "hls";
+        } else if (isTS) {
+          detectedMethod = "mpegts";
+        } else if (isMP4) {
+          detectedMethod = "native";
+        } else if (UNSUPPORTED_EXTENSIONS.has(ext)) {
+          detectedMethod = "unavailable";
+        } else {
+          try {
+            const head = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(3000) });
+            const ct = head.headers.get("content-type") || "";
+            if (ct.includes("mpegurl") || ct.includes("x-mpegurl") || ct.includes("hls")) {
+              detectedMethod = "hls";
+            } else if (ct.includes("mp2t") || ct.includes("mpegts")) {
+              detectedMethod = "mpegts";
+            } else if (ct.includes("mp4") || ct.includes("video/mp4")) {
+              detectedMethod = "native";
+            } else if (ct.startsWith("video/")) {
+              detectedMethod = "native";
+            }
+          } catch {
+            // probe failed, try native as fallback
+          }
+        }
+
+        setMethod(detectedMethod);
+
+        if (detectedMethod === "unavailable") {
+          setError(`Format not supported in browser (${ext.toUpperCase()}). Use an external player.`);
+          return;
+        }
+
+        if (detectedMethod === "hls") {
           if (Hls.isSupported()) {
             hlsInstance = new Hls({ enableWorker: false });
             hlsInstance.loadSource(url);
@@ -80,7 +126,7 @@ export default function VideoPlayer({ url, title, onClose }: VideoPlayerProps) {
           } else {
             video.src = url;
           }
-        } else if (isTS) {
+        } else if (detectedMethod === "mpegts") {
           const mpegtsLib = (mpegts as any).default || mpegts;
           if (mpegtsLib?.isSupported?.()) {
             const inst = mpegtsLib.createPlayer(
@@ -90,11 +136,8 @@ export default function VideoPlayer({ url, title, onClose }: VideoPlayerProps) {
             tsInstance = inst;
             inst.attachMediaElement(video);
             inst.load();
-            inst.on("error", (_type: any, details: string) => {
-              if (
-                details === "FormatUnsupported" ||
-                details === "MediaError"
-              ) {
+            inst.on("error", (_typ: any, details: string) => {
+              if (details === "FormatUnsupported" || details === "MediaError") {
                 setError("Format not supported (likely audio codec)");
               }
             });
@@ -113,7 +156,7 @@ export default function VideoPlayer({ url, title, onClose }: VideoPlayerProps) {
       }
     };
 
-    play();
+    probeAndPlay();
 
     return () => {
       destroyed = true;
@@ -142,8 +185,15 @@ export default function VideoPlayer({ url, title, onClose }: VideoPlayerProps) {
 
       <div className="relative flex h-full w-full flex-col">
         <div className="flex items-center justify-between px-4 py-2 text-white">
-          <span className="truncate text-sm font-bold">{title}</span>
-          <div className="flex gap-4 text-xs text-gray-300">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-sm font-bold">{title}</span>
+            {method && (
+              <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] uppercase text-gray-400">
+                {method}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-4 text-xs text-gray-300">
             {stats.res && <span>{stats.res}</span>}
             {stats.fps && <span>{stats.fps}</span>}
             {stats.speed && <span className="text-blue-400">{stats.speed}</span>}
@@ -152,15 +202,24 @@ export default function VideoPlayer({ url, title, onClose }: VideoPlayerProps) {
 
         <div className="relative flex flex-1 items-center justify-center bg-black">
           {error && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 text-white">
-              <AlertCircle size={48} />
-              <p className="max-w-md text-center text-lg">{error}</p>
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 p-8 text-center text-white">
+              <AlertCircle size={48} className="text-red-400" />
+              <p className="max-w-md text-lg">{error}</p>
+              <button
+                onClick={copyUrl}
+                className="flex items-center gap-2 rounded bg-white/10 px-4 py-2 text-sm transition-colors hover:bg-white/20"
+              >
+                <Copy size={14} />
+                {copied ? "Copied!" : "Copy Stream URL"}
+              </button>
             </div>
           )}
           <video
             ref={videoRef}
             controls
+            autoPlay
             className={`h-full w-full ${error ? "hidden" : "block"}`}
+            crossOrigin="anonymous"
           />
         </div>
       </div>
