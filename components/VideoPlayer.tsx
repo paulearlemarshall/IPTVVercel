@@ -4,9 +4,20 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import ReactPlayer from "react-player";
 import Hls from "hls.js";
 import mpegts from "mpegts.js";
-import { AlertCircle, Copy, ExternalLink, SkipForward, X } from "lucide-react";
+import { AlertCircle, Copy, ExternalLink, Loader2, SkipForward, X } from "lucide-react";
 
-type PlayerTech = "auto" | "native" | "react-player" | "hls" | "mpegts" | "proxy";
+type PlayerTech = "auto" | "native" | "react-player" | "hls" | "mpegts" | "proxy" | "transcode";
+
+type TranscodeStatus = "idle" | "loading" | "running" | "done" | "error";
+
+interface TranscodeState {
+  status: TranscodeStatus;
+  progress: number;
+  message: string;
+  url: string | null;
+}
+
+const FFMPEG_CORE_BASE = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd";
 
 interface VideoPlayerProps {
   url: string;
@@ -25,6 +36,7 @@ const TECH_LABELS: Record<PlayerTech, string> = {
   hls: "HLS.js",
   mpegts: "MPEG-TS",
   proxy: "Proxy Native",
+  transcode: "MKV→MP4",
 };
 
 function detectTech(url: string): PlayerTech {
@@ -51,7 +63,7 @@ function getUrlExtension(url: string) {
 
 function getPlaybackHint(ext: string, tech: PlayerTech) {
   if (ext === "mkv") {
-    return "MKV depends on browser container and codec support. If it still fails, the stream may need server-side transcoding or an external player.";
+    return "Browsers cannot play the MKV container natively. Try the MKV→MP4 engine to convert it in your browser (best for smaller H.264 VOD), or use VLC for large/HEVC files.";
   }
   if (ext === "mp4" || ext === "m4v") {
     return "For MP4 playback, try Proxy Native when the provider blocks browser CORS or Range requests. The video still needs browser-supported codecs such as H.264 video and AAC audio.";
@@ -78,6 +90,12 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState({ res: "", speed: "", fps: "" });
   const [copied, setCopied] = useState(false);
+  const [transcode, setTranscode] = useState<TranscodeState>({
+    status: "idle",
+    progress: 0,
+    message: "",
+    url: null,
+  });
   const reportedSuccess = useRef<Set<string>>(new Set());
 
   const resolvedTech = useMemo<PlayerTech>(() => {
@@ -89,7 +107,9 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
   const sourceExtension = getUrlExtension(url);
   const playbackHint = getPlaybackHint(sourceExtension, resolvedTech);
   const availableTechs = useMemo<PlayerTech[]>(
-    () => (proxyUrl ? ["auto", "proxy", "native", "react-player", "hls", "mpegts"] : ["auto", "native", "react-player", "hls", "mpegts"]),
+    () => (proxyUrl
+      ? ["auto", "proxy", "native", "react-player", "hls", "mpegts", "transcode"]
+      : ["auto", "native", "react-player", "hls", "mpegts", "transcode"]),
     [proxyUrl],
   );
 
@@ -105,6 +125,7 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
     setError(null);
     setStats({ res: "", speed: "", fps: "" });
     setActiveTech(resolvedTech);
+    setTranscode({ status: "idle", progress: 0, message: "", url: null });
   }, [resolvedTech, playbackUrl]);
 
   const copyUrl = async () => {
@@ -274,6 +295,94 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
     };
   }, [resolvedTech, playbackUrl]);
 
+  // In-browser MKV/AVI → MP4 conversion via ffmpeg.wasm. Browsers can usually
+  // decode the codecs inside an MKV (H.264/AAC) but not the Matroska container,
+  // so we remux to MP4 (copying video, re-encoding audio to AAC) entirely
+  // client-side. The single-threaded core needs no special COOP/COEP headers.
+  useEffect(() => {
+    if (resolvedTech !== "transcode") return;
+
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    let ffmpeg: { terminate?: () => void } | null = null;
+
+    (async () => {
+      try {
+        setTranscode({ status: "loading", progress: 0, message: "Loading converter…", url: null });
+        const [{ FFmpeg }, { fetchFile, toBlobURL }] = await Promise.all([
+          import("@ffmpeg/ffmpeg"),
+          import("@ffmpeg/util"),
+        ]);
+
+        const ff = new FFmpeg();
+        ffmpeg = ff;
+        ff.on("progress", ({ progress }: { progress: number }) => {
+          if (cancelled) return;
+          setTranscode((prev) => ({
+            ...prev,
+            status: "running",
+            progress: Math.max(0, Math.min(100, Math.round(progress * 100))),
+          }));
+        });
+
+        await ff.load({
+          coreURL: await toBlobURL(`${FFMPEG_CORE_BASE}/ffmpeg-core.js`, "text/javascript"),
+          wasmURL: await toBlobURL(`${FFMPEG_CORE_BASE}/ffmpeg-core.wasm`, "application/wasm"),
+        });
+        if (cancelled) return;
+
+        setTranscode((prev) => ({ ...prev, status: "running", message: "Downloading stream…" }));
+        const source = proxyUrl || url;
+        await ff.writeFile("input.mkv", await fetchFile(source));
+        if (cancelled) return;
+
+        setTranscode((prev) => ({ ...prev, message: "Converting to MP4…" }));
+        await ff.exec([
+          "-i", "input.mkv",
+          "-c:v", "copy",
+          "-c:a", "aac",
+          "-movflags", "+faststart",
+          "output.mp4",
+        ]);
+        if (cancelled) return;
+
+        const data = await ff.readFile("output.mp4");
+        const blob = new Blob([data as unknown as BlobPart], { type: "video/mp4" });
+        objectUrl = URL.createObjectURL(blob);
+        setTranscode({ status: "done", progress: 100, message: "", url: objectUrl });
+      } catch (e) {
+        if (cancelled) return;
+        setTranscode({ status: "error", progress: 0, message: "", url: null });
+        failPlayback(
+          `In-browser conversion failed: ${(e as Error)?.message || "unknown error"}. Large or HEVC/4K files may exceed browser memory — try VLC instead.`,
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      try {
+        ffmpeg?.terminate?.();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [resolvedTech, proxyUrl, url]);
+
+  // Attach the converted MP4 to the video element once ready.
+  useEffect(() => {
+    if (resolvedTech !== "transcode") return;
+    const video = videoRef.current;
+    if (!video || transcode.status !== "done" || !transcode.url) return;
+    video.src = transcode.url;
+    video.play().catch(() => {});
+    return () => {
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [resolvedTech, transcode.status, transcode.url]);
+
   const videoError = () => {
     const mediaError = videoRef.current?.error;
     const msg = mediaError?.message || "The browser could not decode this stream.";
@@ -368,6 +477,25 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
                 <SkipForward size={14} />
                 Try Next Engine
               </button>
+            </div>
+          )}
+
+          {resolvedTech === "transcode" && (transcode.status === "loading" || transcode.status === "running") && (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-black/85 p-8 text-center text-white">
+              <Loader2 size={40} className="animate-spin text-blue-400" />
+              <p className="text-lg">{transcode.message || "Converting…"}</p>
+              {transcode.status === "running" && transcode.progress > 0 && (
+                <div className="h-2 w-64 overflow-hidden rounded bg-white/20">
+                  <div
+                    className="h-full bg-blue-500 transition-all"
+                    style={{ width: `${transcode.progress}%` }}
+                  />
+                </div>
+              )}
+              <p className="max-w-md text-xs text-gray-400">
+                Converting the whole file in your browser. Best for smaller H.264 MKV/AVI VOD;
+                large or HEVC/4K files may run out of memory — use VLC for those.
+              </p>
             </div>
           )}
 

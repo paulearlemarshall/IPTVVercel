@@ -170,16 +170,16 @@ export default function SeriesDetailModal({
                           onClick={() => onPlayEpisode(episode)}
                           className="group relative overflow-hidden rounded border border-white/10 bg-white/5 text-left transition-all hover:border-white/40 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/60"
                         >
-                          {/* Portrait poster area */}
+                          {/* 16:9 episode still */}
                           <div
                             className="relative w-full overflow-hidden bg-black/40"
-                            style={{ aspectRatio: "2/3" }}
+                            style={{ aspectRatio: "16/9" }}
                           >
                             {img ? (
                               <img
                                 src={img}
                                 alt=""
-                                className="h-full w-full object-contain"
+                                className="h-full w-full object-cover"
                                 onError={(e) => {
                                   (e.currentTarget as HTMLImageElement).style.display = "none";
                                 }}
