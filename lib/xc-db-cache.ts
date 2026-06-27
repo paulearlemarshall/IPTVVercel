@@ -12,6 +12,31 @@ type CacheContext = {
   params?: Record<string, string>;
 };
 
+// The DB cache is a snapshot of the upstream catalogue. Without an age limit it
+// is served indefinitely, so newly added movies/streams never appear on a normal
+// browse — only a manual force-refresh updates it. Treat rows older than this as
+// a miss so the proxy transparently re-fetches and re-persists fresh data.
+const DB_CACHE_TTL_MS = Number(process.env.XC_DB_CACHE_TTL_MS) || 24 * 60 * 60 * 1000;
+
+function rowTime(value: unknown): number {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "string" || typeof value === "number") {
+    const t = new Date(value).getTime();
+    return Number.isFinite(t) ? t : 0;
+  }
+  return 0;
+}
+
+function isStale(rows: { updatedAt: unknown }[]): boolean {
+  if (rows.length === 0) return false;
+  let newest = 0;
+  for (const row of rows) {
+    const t = rowTime(row.updatedAt);
+    if (t > newest) newest = t;
+  }
+  return Date.now() - newest > DB_CACHE_TTL_MS;
+}
+
 const CATEGORY_ACTIONS: Record<string, Section> = {
   get_live_categories: "live",
   get_vod_categories: "vod",
@@ -98,7 +123,7 @@ export async function readCachedXcData(ctx: CacheContext) {
   if (categorySection) {
     try {
       const rows = await db
-        .select({ raw: xcCategories.raw })
+        .select({ raw: xcCategories.raw, updatedAt: xcCategories.updatedAt })
         .from(xcCategories)
         .where(
           and(
@@ -108,6 +133,7 @@ export async function readCachedXcData(ctx: CacheContext) {
           ),
         );
 
+      const stale = isStale(rows);
       addDbLog({
         operation: "retrieve",
         status: "success",
@@ -116,10 +142,10 @@ export async function readCachedXcData(ctx: CacheContext) {
         profileId: ctx.profileId,
         section: categorySection,
         count: rows.length,
-        message: rows.length > 0 ? "DB cache hit" : "DB cache miss",
+        message: rows.length === 0 ? "DB cache miss" : stale ? "DB cache stale" : "DB cache hit",
       });
 
-      return rows.length > 0 ? rows.map((row) => row.raw) : null;
+      return rows.length > 0 && !stale ? rows.map((row) => row.raw) : null;
     } catch (error) {
       addDbLog({
         operation: "retrieve",
@@ -139,7 +165,7 @@ export async function readCachedXcData(ctx: CacheContext) {
     const categoryId = categoryIdFromParams(ctx.params);
     try {
       const rows = await db
-        .select({ raw: xcStreams.raw })
+        .select({ raw: xcStreams.raw, updatedAt: xcStreams.updatedAt })
         .from(xcStreams)
         .where(
           and(
@@ -150,6 +176,7 @@ export async function readCachedXcData(ctx: CacheContext) {
           ),
         );
 
+      const stale = isStale(rows);
       addDbLog({
         operation: "retrieve",
         status: "success",
@@ -159,10 +186,10 @@ export async function readCachedXcData(ctx: CacheContext) {
         section: streamSection,
         categoryId,
         count: rows.length,
-        message: rows.length > 0 ? "DB cache hit" : "DB cache miss",
+        message: rows.length === 0 ? "DB cache miss" : stale ? "DB cache stale" : "DB cache hit",
       });
 
-      return rows.length > 0 ? rows.map((row) => row.raw) : null;
+      return rows.length > 0 && !stale ? rows.map((row) => row.raw) : null;
     } catch (error) {
       addDbLog({
         operation: "retrieve",
@@ -185,7 +212,7 @@ export async function readCachedXcData(ctx: CacheContext) {
 
     try {
       const rows = await db
-        .select({ raw: xcStreamMetadata.raw })
+        .select({ raw: xcStreamMetadata.raw, updatedAt: xcStreamMetadata.updatedAt })
         .from(xcStreamMetadata)
         .where(
           and(
@@ -197,6 +224,7 @@ export async function readCachedXcData(ctx: CacheContext) {
         )
         .limit(1);
 
+      const stale = isStale(rows);
       addDbLog({
         operation: "retrieve",
         status: "success",
@@ -206,10 +234,10 @@ export async function readCachedXcData(ctx: CacheContext) {
         section: metadataSection,
         streamId,
         count: rows.length,
-        message: rows.length > 0 ? "DB cache hit" : "DB cache miss",
+        message: rows.length === 0 ? "DB cache miss" : stale ? "DB cache stale" : "DB cache hit",
       });
 
-      return rows[0]?.raw ?? null;
+      return rows.length > 0 && !stale ? rows[0].raw : null;
     } catch (error) {
       addDbLog({
         operation: "retrieve",
