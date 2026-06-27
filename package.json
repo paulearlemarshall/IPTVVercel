@@ -12,21 +12,22 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "next": "^15.5.19",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
     "@vercel/postgres": "^0.10.0",
     "drizzle-orm": "^0.45.2",
     "hls.js": "^1.6.16",
-    "mpegts.js": "^1.8.0"
+    "mpegts.js": "^1.8.0",
+    "next": "^15.5.19",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.1",
-    "drizzle-kit": "^0.31.10",
-    "tailwindcss": "^4.3.1",
-    "typescript": "^6.0.3",
+    "@types/node": "^26.0.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "@types/node": "^26.0.1"
+    "dotenv": "^17.4.2",
+    "drizzle-kit": "^0.31.10",
+    "tailwindcss": "^4.3.1",
+    "typescript": "^6.0.3"
   }
 }
