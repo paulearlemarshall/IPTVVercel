@@ -109,7 +109,10 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
 
   const copyUrl = async () => {
     try {
-      await navigator.clipboard.writeText(playbackUrl);
+      const absoluteUrl = playbackUrl.startsWith("/")
+        ? `${window.location.origin}${playbackUrl}`
+        : playbackUrl;
+      await navigator.clipboard.writeText(absoluteUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {

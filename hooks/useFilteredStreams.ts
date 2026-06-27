@@ -6,6 +6,7 @@ export function useFilteredStreams(
   streams: Record<string, unknown>[],
   searchQuery?: string,
   englishOnly?: boolean,
+  yearFilter?: string,
 ) {
   const result = useMemo(() => {
     let filtered = streams;
@@ -17,6 +18,12 @@ export function useFilteredStreams(
           ((s.name || s.title || "") as string)
             .toLowerCase()
             .includes(lowerQuery),
+      );
+    }
+
+    if (yearFilter) {
+      filtered = filtered.filter((s) =>
+        ((s.name || s.title || "") as string).includes(yearFilter),
       );
     }
 
@@ -34,7 +41,7 @@ export function useFilteredStreams(
     }
 
     return filtered;
-  }, [streams, searchQuery, englishOnly]);
+  }, [streams, searchQuery, englishOnly, yearFilter]);
 
   return result;
 }

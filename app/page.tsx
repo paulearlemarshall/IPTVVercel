@@ -75,6 +75,7 @@ export default function HomePage() {
   const [selectedSection, setSelectedSection] = useState("vod");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [englishOnly, setEnglishOnly] = useState(true);
+  const [yearFilter, setYearFilter] = useState("");
   const [hover, setHover] = useState<HoverState | null>(null);
   const [hoverMeta, setHoverMeta] = useState<Record<string, unknown> | null>(null);
   const [hoverStreamUrl, setHoverStreamUrl] = useState("");
@@ -256,7 +257,10 @@ export default function HomePage() {
     [activeProfile, selectedSection, fetchSeriesDetails, clearHover],
   );
 
-  const filteredStreams = useFilteredStreams(streams, undefined, englishOnly);
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: 10 }, (_, i) => currentYear - i);
+
+  const filteredStreams = useFilteredStreams(streams, undefined, englishOnly, yearFilter);
   const groupedCategories = useGroupedCategories(
     allCategories[selectedSection] ?? [],
     undefined,
@@ -275,6 +279,17 @@ export default function HomePage() {
               activeServerIndex={activeProfile.activeServerIndex}
               onServerChange={handleServerChange}
             />
+            <select
+              value={yearFilter}
+              onChange={(e) => setYearFilter(e.target.value)}
+              className="rounded border border-gray-200 bg-white px-1.5 py-0.5 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+              title="Filter by year in title"
+            >
+              <option value="">All Years</option>
+              {years.map((y) => (
+                <option key={y} value={String(y)}>{y}</option>
+              ))}
+            </select>
             <button
               onClick={() => setEnglishOnly((v) => !v)}
               className={`rounded px-2 py-0.5 text-xs font-bold transition-colors ${
