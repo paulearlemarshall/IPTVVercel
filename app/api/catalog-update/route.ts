@@ -3,6 +3,7 @@ import { profiles } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 import { buildApiUrl } from "@/lib/xc";
 import { writeCachedXcData } from "@/lib/xc-db-cache";
+import { recordCacheMetric } from "@/lib/metrics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,6 +39,7 @@ async function fetchXc<T>(
   const res = await fetch(buildApiUrl(serverUrl, action, username, password, params), {
     signal: AbortSignal.timeout(30_000),
   });
+  await recordCacheMetric("upstream");
   if (!res.ok) throw new Error(`${action || "account"} returned ${res.status}`);
   return res.json() as Promise<T>;
 }

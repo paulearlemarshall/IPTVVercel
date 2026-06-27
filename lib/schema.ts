@@ -125,6 +125,12 @@ export const xcPlaybackResults = pgTable(
   }),
 );
 
+export const cacheMetrics = pgTable("cache_metrics", {
+  metric: text("metric").primaryKey(),
+  count: integer("count").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const dbActivityLogs = pgTable("db_activity_logs", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   operation: text("operation").notNull(),

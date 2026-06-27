@@ -6,8 +6,10 @@ import { BarChart3, X } from "lucide-react";
 interface Stats {
   totalRequests: number;
   cacheHits: number;
-  cacheMisses: number;
-  entries: number;
+  dbHits: number;
+  memoryHits: number;
+  upstreamFetches: number;
+  memoryEntries: number;
 }
 
 export default function StatsModal() {
@@ -59,10 +61,11 @@ export default function StatsModal() {
             </div>
             <div className="space-y-2 text-sm">
               <Row label="Total Requests" value={stats?.totalRequests ?? "—"} />
-              <Row label="Cache Hits" value={stats?.cacheHits ?? "—"} />
-              <Row label="Cache Misses" value={stats?.cacheMisses ?? "—"} />
-              <Row label="Hit Rate" value={`${hitRate}%`} />
-              <Row label="Cached Entries" value={stats?.entries ?? "—"} />
+              <Row label="Upstream API Calls" value={stats?.upstreamFetches ?? "—"} />
+              <Row label="DB Cache Hits" value={stats?.dbHits ?? "—"} />
+              <Row label="Memory Cache Hits" value={stats?.memoryHits ?? "—"} />
+              <Row label="API Calls Avoided" value={`${hitRate}%`} />
+              <Row label="Memory Entries (this instance)" value={stats?.memoryEntries ?? "—"} />
             </div>
           </div>
         </div>

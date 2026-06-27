@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { buildApiUrl } from "@/lib/xc";
 import { apiCache } from "@/lib/cache";
 import { isDbCacheableAction, readCachedXcData, writeCachedXcData } from "@/lib/xc-db-cache";
+import { recordCacheMetric } from "@/lib/metrics";
 
 export async function POST(request: Request) {
   try {
@@ -34,6 +35,7 @@ export async function POST(request: Request) {
     if (!forceRefresh && isDbCacheableAction(action)) {
       const cached = await readCachedXcData({ profileId, serverUrl, action, params });
       if (cached) {
+        await recordCacheMetric("db_hit");
         return NextResponse.json(cached);
       }
     }
@@ -41,6 +43,7 @@ export async function POST(request: Request) {
     if (!forceRefresh) {
       const cached = apiCache.get(apiUrl);
       if (cached) {
+        await recordCacheMetric("memory_hit");
         if (isDbCacheableAction(action)) {
           await writeCachedXcData({ profileId, serverUrl, action, params }, cached.data);
         }
@@ -57,6 +60,7 @@ export async function POST(request: Request) {
     }
 
     const data = await res.json();
+    await recordCacheMetric("upstream");
     if (isDbCacheableAction(action)) {
       await writeCachedXcData({ profileId, serverUrl, action, params }, data);
     }
