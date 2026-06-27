@@ -101,37 +101,46 @@ export default function HomePage() {
     [],
   );
 
+  const doFetchHover = useCallback(
+    async (stream: Record<string, unknown>, e: React.MouseEvent) => {
+      setHoverMeta(null);
+      setHoverStreamUrl("");
+      setHoverLoading(true);
+      setHover({ stream, mouseX: e.clientX, mouseY: e.clientY });
+      if (activeProfile) {
+        const [meta, urlRes] = await Promise.all([
+          fetchStreamMetadata(stream, selectedSection, activeProfile.id),
+          fetch("/api/stream-url", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              profileId: activeProfile.id,
+              stream,
+              section: selectedSection,
+            }),
+          }).then((r) => r.json().catch(() => ({}))),
+        ]);
+        setHoverMeta(meta);
+        setHoverStreamUrl(urlRes?.url || "");
+      }
+      setHoverLoading(false);
+    },
+    [selectedSection, activeProfile, fetchStreamMetadata],
+  );
+
   const handleMouseEnter = useCallback(
     (stream: Record<string, unknown>, e: React.MouseEvent) => {
       if (selectedSection === "live") return;
       clearTimeout(leaveTimer.current);
       setIsHovering(true);
 
-      hoverTimer.current = setTimeout(async () => {
-        setHoverMeta(null);
-        setHoverStreamUrl("");
-        setHoverLoading(true);
-        setHover({ stream, mouseX: e.clientX, mouseY: e.clientY });
-        if (activeProfile) {
-          const [meta, urlRes] = await Promise.all([
-            fetchStreamMetadata(stream, selectedSection, activeProfile.id),
-            fetch("/api/stream-url", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                profileId: activeProfile.id,
-                stream,
-                section: selectedSection,
-              }),
-            }).then((r) => r.json().catch(() => ({}))),
-          ]);
-          setHoverMeta(meta);
-          setHoverStreamUrl(urlRes?.url || "");
-        }
-        setHoverLoading(false);
-      }, 400);
+      if (hover) {
+        doFetchHover(stream, e);
+      } else {
+        hoverTimer.current = setTimeout(() => doFetchHover(stream, e), 400);
+      }
     },
-    [selectedSection, activeProfile, fetchStreamMetadata],
+    [selectedSection, hover, doFetchHover],
   );
 
   const handleMouseLeave = useCallback(() => {
