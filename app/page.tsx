@@ -6,6 +6,7 @@ import Sidebar from "@/components/Sidebar";
 import ThemeToggle from "@/components/ThemeToggle";
 import StatsModal from "@/components/StatsModal";
 import DbLogModal from "@/components/DbLogModal";
+import SeriesDetailModal from "@/components/SeriesDetailModal";
 import StreamTooltip from "@/components/StreamTooltip";
 import { useXCApi } from "@/hooks/useXCApi";
 import dynamic from "next/dynamic";
@@ -36,6 +37,12 @@ interface PlayerState {
   title: string;
 }
 
+interface SeriesState {
+  stream: Record<string, unknown>;
+  details: Record<string, unknown> | null;
+  isLoading: boolean;
+}
+
 const SECTIONS = ["live", "vod", "series"];
 
 export default function HomePage() {
@@ -52,6 +59,7 @@ export default function HomePage() {
   const [hoverLoading, setHoverLoading] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
   const [player, setPlayer] = useState<PlayerState | null>(null);
+  const [seriesDetail, setSeriesDetail] = useState<SeriesState | null>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const leaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -63,6 +71,7 @@ export default function HomePage() {
     fetchCategories,
     fetchStreams,
     fetchStreamMetadata,
+    fetchSeriesDetails,
   } = useXCApi();
 
   useEffect(() => {
@@ -187,6 +196,16 @@ export default function HomePage() {
   const handleStreamClick = useCallback(
     async (stream: Record<string, unknown>) => {
       if (!activeProfile) return;
+      if (selectedSection === "series") {
+        setHover(null);
+        setHoverMeta(null);
+        setHoverStreamUrl("");
+        setSeriesDetail({ stream, details: null, isLoading: true });
+        const details = await fetchSeriesDetails(stream, activeProfile.id);
+        setSeriesDetail({ stream, details, isLoading: false });
+        return;
+      }
+
       try {
         const res = await fetch("/api/stream-url", {
           method: "POST",
@@ -209,7 +228,7 @@ export default function HomePage() {
         /* ignore */
       }
     },
-    [activeProfile, selectedSection],
+    [activeProfile, selectedSection, fetchSeriesDetails],
   );
 
   const filteredStreams = useFilteredStreams(streams, undefined, englishOnly);
@@ -278,7 +297,7 @@ export default function HomePage() {
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
               {filteredStreams.map((s, i) => (
                 <div
-                  key={(s.stream_id as string) ?? (s.id as string) ?? i}
+                  key={(s.stream_id as string) ?? (s.series_id as string) ?? (s.id as string) ?? i}
                   className="relative cursor-pointer rounded-lg border border-gray-200 bg-white p-2 transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800"
                   onMouseEnter={(e) => handleMouseEnter(s, e)}
                   onMouseLeave={handleMouseLeave}
@@ -332,6 +351,14 @@ export default function HomePage() {
           proxyUrl={player.proxyUrl}
           title={player.title}
           onClose={() => setPlayer(null)}
+        />
+      )}
+      {seriesDetail && (
+        <SeriesDetailModal
+          stream={seriesDetail.stream}
+          details={seriesDetail.details}
+          isLoading={seriesDetail.isLoading}
+          onClose={() => setSeriesDetail(null)}
         />
       )}
     </main>

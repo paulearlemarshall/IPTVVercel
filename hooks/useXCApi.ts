@@ -202,6 +202,31 @@ export function useXCApi() {
     [proxyRequest],
   );
 
+  const fetchSeriesDetails = useCallback(
+    async (
+      stream: Record<string, unknown>,
+      profileId: string,
+    ): Promise<Record<string, unknown> | null> => {
+      const id = (stream.series_id ?? stream.id) as string | undefined;
+      if (!id) return null;
+
+      const cacheKey = `series_details_${id}`;
+      const cached = metadataCache.current.get(cacheKey);
+      if (cached) return cached;
+
+      const result = await proxyRequest<Record<string, unknown>>(
+        "get_series_info",
+        profileId,
+        { series_id: id },
+      );
+
+      if (!result.success) return null;
+      metadataCache.current.set(cacheKey, result.data);
+      return result.data;
+    },
+    [proxyRequest],
+  );
+
   return {
     allCategories,
     streams,
@@ -212,5 +237,6 @@ export function useXCApi() {
     fetchCategories,
     fetchStreams,
     fetchStreamMetadata,
+    fetchSeriesDetails,
   };
 }

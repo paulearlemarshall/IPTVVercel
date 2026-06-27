@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { addDbLog, errorMessage } from "@/lib/db-log";
 import { db } from "@/lib/db";
-import { xcCategories, xcSeriesEpisodes, xcStreamMetadata, xcStreams } from "@/lib/schema";
+import { xcCategories, xcSeriesEpisodes, xcSeriesSeasons, xcStreamMetadata, xcStreams } from "@/lib/schema";
 
 type Section = "live" | "vod" | "series";
 
@@ -70,6 +70,23 @@ function getEpisodes(raw: Record<string, unknown>) {
         raw: episode,
       }));
   });
+}
+
+function getSeasons(raw: Record<string, unknown>) {
+  const seasons = raw.seasons;
+  if (!Array.isArray(seasons)) return [];
+
+  return seasons
+    .filter((season): season is Record<string, unknown> => Boolean(season) && typeof season === "object" && !Array.isArray(season))
+    .map((season, index) => {
+      const seasonNumber = asInteger(season.season_number ?? season.number ?? season.season ?? index + 1) ?? index + 1;
+      return {
+        seasonNumber,
+        name: asString(season.name, `Season ${seasonNumber}`),
+        episodeCount: asInteger(season.episode_count ?? season.episodes_count ?? season.air_episode_count),
+        raw: season,
+      };
+    });
 }
 
 export function isDbCacheableAction(action: string) {
@@ -387,6 +404,57 @@ export async function writeCachedXcData(ctx: CacheContext, data: unknown) {
   }
 
   if (metadataSection !== "series") return;
+
+  const seasons = getSeasons(raw);
+  try {
+    for (const season of seasons) {
+      await db
+        .insert(xcSeriesSeasons)
+        .values({
+          profileId: ctx.profileId,
+          serverUrl: ctx.serverUrl,
+          seriesId: streamId,
+          seasonNumber: season.seasonNumber,
+          name: season.name,
+          episodeCount: season.episodeCount,
+          raw: season.raw,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [xcSeriesSeasons.profileId, xcSeriesSeasons.serverUrl, xcSeriesSeasons.seriesId, xcSeriesSeasons.seasonNumber],
+          set: {
+            name: season.name,
+            episodeCount: season.episodeCount,
+            raw: season.raw,
+            updatedAt: now,
+          },
+        });
+    }
+    addDbLog({
+      operation: "update",
+      status: "success",
+      table: "xc_series_seasons",
+      action: ctx.action,
+      profileId: ctx.profileId,
+      section: metadataSection,
+      streamId,
+      count: seasons.length,
+      message: "Upserted series season rows",
+    });
+  } catch (error) {
+    addDbLog({
+      operation: "update",
+      status: "failure",
+      table: "xc_series_seasons",
+      action: ctx.action,
+      profileId: ctx.profileId,
+      section: metadataSection,
+      streamId,
+      count: seasons.length,
+      message: errorMessage(error),
+    });
+    throw error;
+  }
 
   const episodes = getEpisodes(raw);
   try {

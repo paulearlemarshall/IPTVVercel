@@ -86,3 +86,22 @@ export const xcSeriesEpisodes = pgTable(
     }),
   }),
 );
+
+export const xcSeriesSeasons = pgTable(
+  "xc_series_seasons",
+  {
+    profileId: text("profile_id").notNull().references(() => profiles.id, { onDelete: "cascade" }),
+    serverUrl: text("server_url").notNull(),
+    seriesId: text("series_id").notNull(),
+    seasonNumber: integer("season_number").notNull(),
+    name: text("name").notNull(),
+    episodeCount: integer("episode_count"),
+    raw: jsonb("raw").$type<Record<string, unknown>>().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({
+      columns: [table.profileId, table.serverUrl, table.seriesId, table.seasonNumber],
+    }),
+  }),
+);

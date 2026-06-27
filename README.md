@@ -16,6 +16,7 @@ IPTVVercel is a Next.js IPTV browser app for Xtream Codes-style providers. It ru
   - MPEG-TS via `mpegts.js`
   - Same-origin proxy native playback for servers that block direct browser/CORS/Range playback
 - Filter categories and streams with an EN toggle, including a synthetic `|EN| All VOD` category that aggregates EN VOD buckets.
+- Open series in a full-screen series window with backdrop art, season groups, and episode titles.
 - Light and dark theme support.
 
 ## Stack
@@ -77,7 +78,7 @@ The Xtream Codes proxy is backed by Neon tables for:
 - Live, VOD, and series category buckets.
 - Per-category stream lists.
 - VOD and series metadata responses.
-- Series episodes flattened by season while retaining the full raw episode payload.
+- Series seasons and episodes flattened by season while retaining the full raw payloads.
 
 When the app needs categories, streams, or metadata, it checks Neon first for the active profile and server URL. If records exist, it returns those rows. If records are missing, it calls the provider API, stores the full response payloads in Neon, and returns the fresh data.
 
