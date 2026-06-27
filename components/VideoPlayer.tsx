@@ -1,23 +1,59 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactPlayer from "react-player";
+import Hls from "hls.js";
 import mpegts from "mpegts.js";
-import { X, AlertCircle, Copy } from "lucide-react";
+import { AlertCircle, Copy, X } from "lucide-react";
+
+type PlayerTech = "auto" | "native" | "react-player" | "hls" | "mpegts" | "proxy";
 
 interface VideoPlayerProps {
   url: string;
+  proxyUrl?: string | null;
   title: string;
   onClose: () => void;
 }
 
-export default function VideoPlayer({ url, title, onClose }: VideoPlayerProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
+const TECH_LABELS: Record<PlayerTech, string> = {
+  auto: "Auto",
+  native: "Native",
+  "react-player": "ReactPlayer",
+  hls: "HLS.js",
+  mpegts: "MPEG-TS",
+  proxy: "Proxy Native",
+};
+
+function detectTech(url: string): PlayerTech {
+  const lower = url.toLowerCase();
+  if (lower.includes(".m3u8")) return "hls";
+  if (lower.includes(".ts") || lower.includes("output=ts")) return "mpegts";
+  if (lower.match(/\.(mp4|m4v|webm|ogg|mov)(\?|$)/)) return "native";
+  return "react-player";
+}
+
+function getPlayableUrl(tech: PlayerTech, directUrl: string, proxyUrl?: string | null) {
+  return tech === "proxy" && proxyUrl ? proxyUrl : directUrl;
+}
+
+export default function VideoPlayer({ url, proxyUrl, title, onClose }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [selectedTech, setSelectedTech] = useState<PlayerTech>("auto");
+  const [activeTech, setActiveTech] = useState<PlayerTech>("react-player");
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState({ res: "", speed: "", fps: "" });
   const [copied, setCopied] = useState(false);
-  const [useTsPlayer, setUseTsPlayer] = useState(false);
+
+  const resolvedTech = useMemo<PlayerTech>(() => {
+    if (selectedTech !== "auto") return selectedTech;
+    return detectTech(url);
+  }, [selectedTech, url]);
+
+  const playbackUrl = getPlayableUrl(resolvedTech, url, proxyUrl);
+  const availableTechs = useMemo<PlayerTech[]>(
+    () => (proxyUrl ? ["auto", "native", "react-player", "hls", "mpegts", "proxy"] : ["auto", "native", "react-player", "hls", "mpegts"]),
+    [proxyUrl],
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -27,50 +63,86 @@ export default function VideoPlayer({ url, title, onClose }: VideoPlayerProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  useEffect(() => {
+    setError(null);
+    setStats({ res: "", speed: "", fps: "" });
+    setActiveTech(resolvedTech);
+  }, [resolvedTech, playbackUrl]);
+
   const copyUrl = async () => {
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(playbackUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   };
 
   useEffect(() => {
-    const lower = url.toLowerCase();
-    setUseTsPlayer(lower.includes(".ts") || lower.includes("output=ts"));
-  }, [url]);
+    if (resolvedTech !== "hls" || !videoRef.current) return;
+
+    const video = videoRef.current;
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = playbackUrl;
+      video.play().catch(() => {});
+      return () => {
+        video.removeAttribute("src");
+        video.load();
+      };
+    }
+
+    if (!Hls.isSupported()) {
+      setError("HLS.js is not supported in this browser.");
+      return;
+    }
+
+    const hls = new Hls({ enableWorker: false, lowLatencyMode: true });
+    hls.loadSource(playbackUrl);
+    hls.attachMedia(video);
+    hls.on(Hls.Events.ERROR, (_event, data) => {
+      if (data.fatal) setError(`HLS failed: ${data.details || data.type}`);
+    });
+
+    video.play().catch(() => {});
+
+    return () => {
+      hls.destroy();
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [resolvedTech, playbackUrl]);
 
   useEffect(() => {
-    if (!useTsPlayer || !url || !videoRef.current) return;
+    if (resolvedTech !== "mpegts" || !videoRef.current) return;
 
     const video = videoRef.current;
     const mpegtsLib = (mpegts as any).default || mpegts;
-    if (!mpegtsLib?.isSupported?.()) return;
+    if (!mpegtsLib?.isSupported?.()) {
+      setError("MPEG-TS playback is not supported in this browser.");
+      return;
+    }
 
     const inst = mpegtsLib.createPlayer(
-      { type: "mpegts", isLive: true, url },
+      { type: "mpegts", isLive: true, url: playbackUrl },
       { enableWorker: false, stashInitialSize: 128 },
     );
 
     inst.attachMediaElement(video);
     inst.load();
-
-    inst.on("error", (_typ: any, details: string) => {
-      if (details === "FormatUnsupported" || details === "MediaError") {
-        setError("Format not supported (likely audio codec)");
-      }
+    inst.on("error", (_typ: unknown, details: string) => {
+      setError(`MPEG-TS failed: ${details || "unknown error"}`);
     });
 
-    video.play();
+    video.play().catch(() => {});
 
     const ival = setInterval(() => {
       const info = (inst as any).statisticsInfo;
-      if (!info) return;
       const res = video.videoWidth && video.videoHeight
         ? `${video.videoWidth}x${video.videoHeight}` : "";
-      const speed = info.speed > 0
+      const speed = info?.speed > 0
         ? `${((info.speed * 8) / 1000).toFixed(2)} Mbps` : "";
-      const fps = info.decodedFrames > 0
+      const fps = info?.decodedFrames > 0
         ? `${info.decodedFrames.toFixed(1)} fps` : "";
       setStats({ res, speed, fps });
     }, 1000);
@@ -82,73 +154,126 @@ export default function VideoPlayer({ url, title, onClose }: VideoPlayerProps) {
       inst.detachMediaElement();
       inst.destroy();
     };
-  }, [useTsPlayer, url]);
+  }, [resolvedTech, playbackUrl]);
+
+  useEffect(() => {
+    if (resolvedTech !== "native" && resolvedTech !== "proxy") return;
+    const video = videoRef.current;
+    if (!video) return;
+
+    video.src = playbackUrl;
+    video.play().catch(() => {});
+
+    const ival = setInterval(() => {
+      const res = video.videoWidth && video.videoHeight
+        ? `${video.videoWidth}x${video.videoHeight}` : "";
+      setStats((prev) => ({ ...prev, res }));
+    }, 1000);
+
+    return () => {
+      clearInterval(ival);
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [resolvedTech, playbackUrl]);
+
+  const videoError = () => {
+    const mediaError = videoRef.current?.error;
+    const msg = mediaError?.message || "The browser could not decode this stream.";
+    setError(`Playback failed: ${msg}`);
+  };
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90">
       <button
         onClick={onClose}
-        className="absolute right-4 top-4 z-[10000] flex h-12 w-12 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/30"
+        className="absolute right-4 top-4 z-[10000] flex h-12 w-12 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/30 focus:outline-none focus:ring-2 focus:ring-white"
         title="Close (Esc)"
       >
         <X size={28} />
       </button>
 
       <div className="relative flex h-full w-full flex-col">
-        <div className="flex items-center justify-between px-4 py-2 text-white">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-bold">{title}</span>
-            <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] uppercase text-gray-400">
-              {useTsPlayer ? "mpegts" : "react-player"}
-            </span>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-2 text-white">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-bold">{title}</div>
+            <div className="text-[11px] uppercase tracking-wide text-gray-400">
+              In use: {TECH_LABELS[activeTech]}
+            </div>
           </div>
-          <div className="flex items-center gap-4 text-xs text-gray-300">
-            {stats.res && <span>{stats.res}</span>}
-            {stats.fps && <span>{stats.fps}</span>}
-            {stats.speed && <span className="text-blue-400">{stats.speed}</span>}
+
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex overflow-hidden rounded border border-white/15 bg-white/5">
+              {availableTechs.map((tech) => {
+                const active = selectedTech === tech;
+                return (
+                  <button
+                    key={tech}
+                    type="button"
+                    onClick={() => setSelectedTech(tech)}
+                    className={`px-2.5 py-1 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-white ${
+                      active
+                        ? "bg-blue-500 text-white"
+                        : "text-gray-300 hover:bg-white/10 hover:text-white"
+                    }`}
+                    title={`Use ${TECH_LABELS[tech]}`}
+                  >
+                    {TECH_LABELS[tech]}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-4 text-xs text-gray-300">
+              {stats.res && <span>{stats.res}</span>}
+              {stats.fps && <span>{stats.fps}</span>}
+              {stats.speed && <span className="text-blue-300">{stats.speed}</span>}
+            </div>
           </div>
         </div>
 
         <div className="relative flex flex-1 items-center justify-center bg-black">
           {error && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 p-8 text-center text-white">
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-black/80 p-8 text-center text-white">
               <AlertCircle size={48} className="text-red-400" />
               <p className="max-w-md text-lg">{error}</p>
+              <p className="max-w-md text-sm text-gray-300">
+                MKV depends on browser container and codec support. Try Proxy Native for CORS issues, or MPEG-TS/HLS when the source is a live transport stream.
+              </p>
               <button
                 onClick={copyUrl}
-                className="flex items-center gap-2 rounded bg-white/10 px-4 py-2 text-sm transition-colors hover:bg-white/20"
+                className="flex items-center gap-2 rounded bg-white/10 px-4 py-2 text-sm transition-colors hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white"
               >
                 <Copy size={14} />
-                {copied ? "Copied!" : "Copy Stream URL"}
+                {copied ? "Copied!" : "Copy Active URL"}
               </button>
             </div>
           )}
 
-          <div ref={containerRef} className="h-full w-full">
-            {!useTsPlayer ? (
+          <div className="relative h-full w-full">
+            {resolvedTech === "react-player" ? (
               <ReactPlayer
-                src={url}
+                src={playbackUrl}
                 controls
                 playing
                 width="100%"
                 height="100%"
-                config={{
-                  hls: { enableWorker: false },
-                  html: { crossOrigin: "anonymous" },
-                }}
+                onReady={() => setActiveTech("react-player")}
                 onError={(e: any) => {
                   const msg = e?.message || e?.type || "Unknown error";
-                  setError(`Playback failed: ${msg}`);
+                  setError(`ReactPlayer failed: ${msg}`);
                 }}
                 style={{ position: "absolute", top: 0, left: 0 }}
               />
             ) : (
               <video
+                key={`${resolvedTech}:${playbackUrl}`}
                 ref={videoRef}
                 controls
                 autoPlay
+                playsInline
                 className="h-full w-full"
-                crossOrigin="anonymous"
+                onCanPlay={() => setActiveTech(resolvedTech)}
+                onError={videoError}
               />
             )}
           </div>

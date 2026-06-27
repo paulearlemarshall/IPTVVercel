@@ -31,6 +31,7 @@ interface HoverState {
 
 interface PlayerState {
   url: string;
+  proxyUrl?: string | null;
   title: string;
 }
 
@@ -199,6 +200,7 @@ export default function HomePage() {
         if (data.url) {
           setPlayer({
             url: data.url,
+            proxyUrl: data.proxyUrl,
             title: (stream.name ?? stream.title ?? "Untitled") as string,
           });
         }
@@ -330,6 +332,7 @@ export default function HomePage() {
       {player && (
         <VideoPlayer
           url={player.url}
+          proxyUrl={player.proxyUrl}
           title={player.title}
           onClose={() => setPlayer(null)}
         />

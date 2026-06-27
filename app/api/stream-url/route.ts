@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { profiles } from "@/lib/schema";
 import { eq } from "drizzle-orm";
-import { getXcUrl } from "@/lib/xc";
+import { getXcUrl, normalizeContainerExtension } from "@/lib/xc";
 
 export async function POST(request: Request) {
   try {
@@ -33,7 +33,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Could not construct stream URL" }, { status: 400 });
     }
 
-    return NextResponse.json({ url });
+    const streamId = (stream.stream_id ?? stream.id) as string | undefined;
+    const ext = normalizeContainerExtension(stream.container_extension);
+    const proxyUrl = streamId
+      ? `/api/playback?${new URLSearchParams({
+          profileId,
+          section,
+          streamId,
+          ext,
+        }).toString()}`
+      : null;
+
+    return NextResponse.json({ url, proxyUrl });
   } catch {
     return NextResponse.json({ error: "Failed to get stream URL" }, { status: 500 });
   }

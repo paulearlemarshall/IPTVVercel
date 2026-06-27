@@ -9,6 +9,11 @@ export function constructStreamUrl(
   return `${base}/${type}/${username}/${password}/${streamId}.ts`;
 }
 
+export function normalizeContainerExtension(value: unknown): string {
+  const ext = typeof value === "string" ? value.replace(/^\./, "").toLowerCase() : "";
+  return /^[a-z0-9]{1,8}$/.test(ext) ? ext : "mp4";
+}
+
 export function buildApiUrl(
   serverUrl: string,
   action: string,
@@ -41,7 +46,7 @@ export function getXcUrl(
     return `${base}/${username}/${password}/${id}.ts`;
   }
   if (type === "vod" || type === "episode") {
-    const ext = (stream.container_extension as string) || "mp4";
+    const ext = normalizeContainerExtension(stream.container_extension);
     const path = type === "episode" ? "series" : "movie";
     return `${base}/${path}/${username}/${password}/${id}.${ext}`;
   }
