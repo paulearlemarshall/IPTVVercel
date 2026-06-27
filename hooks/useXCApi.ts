@@ -1,14 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
-
-interface Profile {
-  id: string;
-  username: string;
-  password: string;
-  servers: string[];
-  activeServerIndex: number;
-}
+import { useCallback, useRef, useState } from "react";
 
 interface Category {
   category_id: string;
@@ -16,11 +8,9 @@ interface Category {
   parent_id: number;
 }
 
-interface ApiResult<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
-}
+type ApiResult<T> =
+  | { success: true; data: T }
+  | { success: false; error: string };
 
 export function useXCApi() {
   const [allCategories, setAllCategories] = useState<Record<string, Category[]>>({
@@ -31,6 +21,7 @@ export function useXCApi() {
   const [streams, setStreams] = useState<Record<string, unknown>[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState("Ready");
+  const metadataCache = useRef<Map<string, Record<string, unknown>>>(new Map());
 
   const proxyRequest = useCallback(
     async <T>(action: string, profileId: string, params?: Record<string, string>): Promise<ApiResult<T>> => {
@@ -45,7 +36,7 @@ export function useXCApi() {
           return { success: false, error: err.error ?? `HTTP ${res.status}` };
         }
         const data = await res.json();
-        return { success: true, data };
+        return { success: true, data: data as T };
       } catch (e) {
         return { success: false, error: (e as Error).message };
       }
@@ -106,9 +97,37 @@ export function useXCApi() {
     [proxyRequest],
   );
 
+  const fetchStreamMetadata = useCallback(
+    async (
+      stream: Record<string, unknown>,
+      section: string,
+      profileId: string,
+    ): Promise<Record<string, unknown> | null> => {
+      const id = (stream.stream_id ?? stream.series_id ?? stream.id) as string | undefined;
+      if (!id) return null;
+
+      const cacheKey = `${section}_${id}`;
+      const cached = metadataCache.current.get(cacheKey);
+      if (cached) return cached;
+
+      const action = section === "vod" ? "get_vod_info" : "get_series_info";
+      const paramKey = section === "vod" ? "vod_id" : "series_id";
+
+      const result = await proxyRequest<Record<string, unknown>>(action, profileId, {
+        [paramKey]: id,
+      });
+
+      if (!result.success) return null;
+
+      const info = (result.data?.info ?? result.data) as Record<string, unknown> | undefined;
+      if (info) metadataCache.current.set(cacheKey, info);
+      return info ?? null;
+    },
+    [proxyRequest],
+  );
+
   return {
     allCategories,
-    setAllCategories,
     streams,
     setStreams,
     isLoading,
@@ -116,5 +135,6 @@ export function useXCApi() {
     setStatus,
     fetchCategories,
     fetchStreams,
+    fetchStreamMetadata,
   };
 }
