@@ -38,12 +38,6 @@ export default function StreamTooltip({
     setPos({ top, left });
   }, [mouseX, mouseY, metadata, isLoading, streamUrl]);
 
-  const logo =
-    (stream.stream_icon as string) ||
-    (stream.cover as string) ||
-    (metadata?.movie_image as string) ||
-    "";
-
   const name = (stream.name ?? stream.title ?? "Untitled") as string;
   const year = metadata?.releasedate
     ? (metadata.releasedate as string).split("-")[0]
@@ -83,16 +77,6 @@ export default function StreamTooltip({
           </div>
         ) : (
           <div className="p-3">
-            {logo && (
-              <img
-                src={logo}
-                alt=""
-                className="mb-2 h-32 w-full rounded object-cover"
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).style.display = "none";
-                }}
-              />
-            )}
             <div className="mb-1 text-sm font-bold text-blue-600 dark:text-blue-400">
               {name}
             </div>
