@@ -2,6 +2,25 @@
 
 import { useMemo } from "react";
 
+// Best-effort release year for a stream: explicit year/release-date fields, else
+// the most recent 4-digit year found in the title (so "Title (2026)" sorts above
+// "Title (2019)"). Returns 0 when no year is detectable.
+function streamYear(stream: Record<string, unknown>): number {
+  const direct = stream.year ?? stream.releaseDate ?? stream.release_date ?? stream.releasedate;
+  if (typeof direct === "number" && direct > 1900) return direct;
+  if (typeof direct === "string") {
+    const y = Number.parseInt(direct.slice(0, 4), 10);
+    if (y > 1900 && y < 2100) return y;
+  }
+
+  const text = String(stream.name ?? stream.title ?? "");
+  const matches = text.match(/(?:19|20)\d{2}/g);
+  if (matches && matches.length > 0) {
+    return Math.max(...matches.map(Number));
+  }
+  return 0;
+}
+
 export function useFilteredStreams(
   streams: Record<string, unknown>[],
   searchQuery?: string,
@@ -40,7 +59,9 @@ export function useFilteredStreams(
       );
     }
 
-    return filtered;
+    // Sort newest year first; streams with no detectable year fall to the bottom
+    // while keeping their original relative order (Array.sort is stable).
+    return [...filtered].sort((a, b) => streamYear(b) - streamYear(a));
   }, [streams, searchQuery, englishOnly, yearFilter]);
 
   return result;
