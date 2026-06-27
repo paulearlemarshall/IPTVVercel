@@ -74,6 +74,20 @@ function episodeNumber(episode: Record<string, unknown>, index: number) {
   return typeof value === "number" || typeof value === "string" ? String(value) : String(index + 1);
 }
 
+function episodeImage(episode: Record<string, unknown>) {
+  const info = episode.info;
+  const nested = info && typeof info === "object" && !Array.isArray(info)
+    ? info as Record<string, unknown>
+    : {};
+  return (
+    getText(nested.movie_image) ||
+    getText(nested.cover) ||
+    getText(episode.movie_image) ||
+    getText(episode.cover) ||
+    ""
+  );
+}
+
 export default function SeriesDetailModal({
   stream,
   details,
@@ -149,13 +163,25 @@ export default function SeriesDetailModal({
                     {group.episodes.map((episode, index) => (
                       <div
                         key={getText(episode.id) || `${group.season}-${index}`}
-                        className="rounded border border-white/10 bg-white/5 px-3 py-2"
+                        className="overflow-hidden rounded border border-white/10 bg-white/5"
                       >
-                        <div className="text-[11px] uppercase tracking-wide text-gray-400">
-                          Episode {episodeNumber(episode, index)}
-                        </div>
-                        <div className="mt-0.5 text-sm font-medium text-white">
-                          {episodeTitle(episode, index)}
+                        {episodeImage(episode) && (
+                          <img
+                            src={episodeImage(episode)}
+                            alt=""
+                            className="h-28 w-full object-cover"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).style.display = "none";
+                            }}
+                          />
+                        )}
+                        <div className="px-3 py-2">
+                          <div className="text-[11px] uppercase tracking-wide text-gray-400">
+                            Episode {episodeNumber(episode, index)}
+                          </div>
+                          <div className="mt-0.5 text-sm font-medium text-white">
+                            {episodeTitle(episode, index)}
+                          </div>
                         </div>
                       </div>
                     ))}

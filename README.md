@@ -17,6 +17,9 @@ IPTVVercel is a Next.js IPTV browser app for Xtream Codes-style providers. It ru
   - Same-origin proxy native playback for servers that block direct browser/CORS/Range playback
 - Filter categories and streams with an EN toggle, including a synthetic `|EN| All VOD` category that aggregates EN VOD buckets.
 - Open series in a full-screen series window with backdrop art, season groups, and episode titles.
+- Show account/server details from the Xtream account endpoint.
+- Run catalogue update jobs for All, VOD, Live, or Series from the header.
+- Record playback engine success/failure per stream in Neon and offer VLC/external-player launch links.
 - Light and dark theme support.
 
 ## Stack
@@ -84,11 +87,19 @@ When the app needs categories, streams, or metadata, it checks Neon first for th
 
 The top-right DB Log button shows recent database retrieve and upsert activity from the current server instance, including successes, failures, tables, actions, row counts, and cache hit/miss messages. The log is intentionally in memory so logging does not create more database writes while debugging database writes.
 
+The top-right Account button calls the Xtream account endpoint with no `action` parameter and displays account status, expiry, connection counts, and server details.
+
+The Update buttons traverse the provider catalogue by section. `All` runs Live, VOD, and Series. The section buttons fetch categories, then every category's streams, and write them through the same Neon cache model.
+
 ## EN Filter
 
 The EN toggle is on by default. Category filtering uses an allowlist of prefixes such as `EN`, `UK`, `US`, `GB`, `CA`, `MULTI`, `NETFLIX`, `APPLE+`, `DISNEY+`, `4K`, `24/7`, `BEIN`, `NZ`, and `AU`. Stream filtering removes obvious non-English language markers such as `SWEDEN`, `NORWAY`, `DENMARK`, `FINLAND`, `DEUTSCH`, `FRENCH`, `ITALIAN`, and `SPANISH`.
 
 For VOD, the app injects a virtual `|EN| All VOD` category when matching EN categories exist. Selecting it fetches every matching EN VOD category sequentially through the same DB-backed proxy path and deduplicates streams by `stream_id`.
+
+## External Playback
+
+The player records whether each engine succeeds or fails for a stream and includes a `Try Next Engine` fallback control. The `VLC` button attempts to hand the direct stream URL to VLC using platform URL schemes where browsers allow it. This requires VLC to be installed and may be blocked by browser or operating-system policy.
 
 ## Repository Structure
 

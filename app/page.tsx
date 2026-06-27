@@ -1,22 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import AccountModal from "@/components/AccountModal";
+import CatalogUpdateButtons from "@/components/CatalogUpdateButtons";
+import DbLogModal from "@/components/DbLogModal";
 import ServerSelector from "@/components/ServerSelector";
 import Sidebar from "@/components/Sidebar";
-import ThemeToggle from "@/components/ThemeToggle";
-import StatsModal from "@/components/StatsModal";
-import DbLogModal from "@/components/DbLogModal";
 import SeriesDetailModal from "@/components/SeriesDetailModal";
+import StatsModal from "@/components/StatsModal";
 import StreamTooltip from "@/components/StreamTooltip";
+import ThemeToggle from "@/components/ThemeToggle";
+import { useFilteredStreams } from "@/hooks/useFilteredStreams";
+import { useGroupedCategories } from "@/hooks/useGroupedCategories";
 import { useXCApi } from "@/hooks/useXCApi";
-import dynamic from "next/dynamic";
 
 const VideoPlayer = dynamic(
   () => import("@/components/VideoPlayer"),
   { ssr: false },
 );
-import { useGroupedCategories } from "@/hooks/useGroupedCategories";
-import { useFilteredStreams } from "@/hooks/useFilteredStreams";
 
 interface Profile {
   id: string;
@@ -34,6 +36,7 @@ interface HoverState {
 interface PlayerState {
   url: string;
   proxyUrl?: string | null;
+  streamId?: string;
   title: string;
 }
 
@@ -45,6 +48,18 @@ interface SeriesState {
 
 const SECTIONS = ["live", "vod", "series"];
 
+function getArtwork(stream: Record<string, unknown>) {
+  const backdrop = stream.backdrop_path;
+  if (Array.isArray(backdrop) && typeof backdrop[0] === "string") return backdrop[0];
+  if (typeof backdrop === "string") return backdrop;
+  return (
+    (stream.stream_icon as string) ||
+    (stream.cover as string) ||
+    (stream.movie_image as string) ||
+    ""
+  );
+}
+
 export default function HomePage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeProfile, setActiveProfile] = useState<Profile | null>(null);
@@ -52,9 +67,7 @@ export default function HomePage() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [englishOnly, setEnglishOnly] = useState(true);
   const [hover, setHover] = useState<HoverState | null>(null);
-  const [hoverMeta, setHoverMeta] = useState<Record<string, unknown> | null>(
-    null,
-  );
+  const [hoverMeta, setHoverMeta] = useState<Record<string, unknown> | null>(null);
   const [hoverStreamUrl, setHoverStreamUrl] = useState("");
   const [hoverLoading, setHoverLoading] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
@@ -68,6 +81,7 @@ export default function HomePage() {
     streams,
     isLoading,
     status,
+    setStatus,
     fetchCategories,
     fetchStreams,
     fetchStreamMetadata,
@@ -103,14 +117,18 @@ export default function HomePage() {
     [activeProfile, selectedSection, fetchStreams],
   );
 
-  const handleServerChange = useCallback(
-    (index: number) => {
-      setActiveProfile((prev) =>
-        prev ? { ...prev, activeServerIndex: index } : prev,
-      );
-    },
-    [],
-  );
+  const handleServerChange = useCallback((index: number) => {
+    setActiveProfile((prev) =>
+      prev ? { ...prev, activeServerIndex: index } : prev,
+    );
+  }, []);
+
+  const clearHover = useCallback(() => {
+    setHover(null);
+    setHoverMeta(null);
+    setHoverStreamUrl("");
+    setHoverLoading(false);
+  }, []);
 
   const doFetchHover = useCallback(
     async (stream: Record<string, unknown>, e: React.MouseEvent) => {
@@ -119,20 +137,21 @@ export default function HomePage() {
       setHoverLoading(true);
       setHover({ stream, mouseX: e.clientX, mouseY: e.clientY });
       if (activeProfile) {
-        const [meta, urlRes] = await Promise.all([
-          fetchStreamMetadata(stream, selectedSection, activeProfile.id),
-          fetch("/api/stream-url", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              profileId: activeProfile.id,
-              stream,
-              section: selectedSection,
-            }),
-          }).then((r) => r.json().catch(() => ({}))),
-        ]);
+        const metaPromise = fetchStreamMetadata(stream, selectedSection, activeProfile.id);
+        const urlPromise = selectedSection === "series"
+          ? Promise.resolve({})
+          : fetch("/api/stream-url", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                profileId: activeProfile.id,
+                stream,
+                section: selectedSection,
+              }),
+            }).then((r) => r.json().catch(() => ({})));
+        const [meta, urlRes] = await Promise.all([metaPromise, urlPromise]);
         setHoverMeta(meta);
-        setHoverStreamUrl(urlRes?.url || "");
+        setHoverStreamUrl((urlRes as { url?: string })?.url || "");
       }
       setHoverLoading(false);
     },
@@ -141,7 +160,6 @@ export default function HomePage() {
 
   const handleMouseEnter = useCallback(
     (stream: Record<string, unknown>, e: React.MouseEvent) => {
-      if (selectedSection === "live") return;
       clearTimeout(leaveTimer.current);
       setIsHovering(true);
 
@@ -158,14 +176,9 @@ export default function HomePage() {
     clearTimeout(hoverTimer.current);
     setIsHovering(false);
     leaveTimer.current = setTimeout(() => {
-      if (!isHovering) {
-        setHover(null);
-        setHoverMeta(null);
-        setHoverStreamUrl("");
-        setHoverLoading(false);
-      }
+      if (!isHovering) clearHover();
     }, 300);
-  }, [isHovering]);
+  }, [isHovering, clearHover]);
 
   const handleTooltipEnter = useCallback(() => {
     clearTimeout(leaveTimer.current);
@@ -174,13 +187,8 @@ export default function HomePage() {
 
   const handleTooltipLeave = useCallback(() => {
     setIsHovering(false);
-    leaveTimer.current = setTimeout(() => {
-      setHover(null);
-      setHoverMeta(null);
-      setHoverStreamUrl("");
-      setHoverLoading(false);
-    }, 300);
-  }, []);
+    leaveTimer.current = setTimeout(clearHover, 300);
+  }, [clearHover]);
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
@@ -197,9 +205,7 @@ export default function HomePage() {
     async (stream: Record<string, unknown>) => {
       if (!activeProfile) return;
       if (selectedSection === "series") {
-        setHover(null);
-        setHoverMeta(null);
-        setHoverStreamUrl("");
+        clearHover();
         setSeriesDetail({ stream, details: null, isLoading: true });
         const details = await fetchSeriesDetails(stream, activeProfile.id);
         setSeriesDetail({ stream, details, isLoading: false });
@@ -221,6 +227,7 @@ export default function HomePage() {
           setPlayer({
             url: data.url,
             proxyUrl: data.proxyUrl,
+            streamId: String(stream.stream_id ?? stream.id ?? ""),
             title: (stream.name ?? stream.title ?? "Untitled") as string,
           });
         }
@@ -228,11 +235,10 @@ export default function HomePage() {
         /* ignore */
       }
     },
-    [activeProfile, selectedSection, fetchSeriesDetails],
+    [activeProfile, selectedSection, fetchSeriesDetails, clearHover],
   );
 
   const filteredStreams = useFilteredStreams(streams, undefined, englishOnly);
-
   const groupedCategories = useGroupedCategories(
     allCategories[selectedSection] ?? [],
     undefined,
@@ -252,6 +258,7 @@ export default function HomePage() {
               onServerChange={handleServerChange}
             />
             <span className="text-xs text-gray-400">{status}</span>
+            <CatalogUpdateButtons profileId={activeProfile.id} onStatus={setStatus} />
             <button
               onClick={() => setEnglishOnly((v) => !v)}
               className={`rounded px-2 py-0.5 text-xs font-bold transition-colors ${
@@ -266,6 +273,7 @@ export default function HomePage() {
           </>
         )}
         <div className="ml-auto flex items-center gap-1">
+          <AccountModal profileId={activeProfile?.id} />
           <DbLogModal />
           <StatsModal />
           <ThemeToggle />
@@ -295,46 +303,44 @@ export default function HomePage() {
           )}
           {filteredStreams.length > 0 && (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-              {filteredStreams.map((s, i) => (
-                <div
-                  key={(s.stream_id as string) ?? (s.series_id as string) ?? (s.id as string) ?? i}
-                  className="relative cursor-pointer rounded-lg border border-gray-200 bg-white p-2 transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800"
-                  onMouseEnter={(e) => handleMouseEnter(s, e)}
-                  onMouseLeave={handleMouseLeave}
-                  onMouseMove={handleMouseMove}
-                  onClick={() => handleStreamClick(s)}
-                >
+              {filteredStreams.map((stream, index) => {
+                const artwork = getArtwork(stream);
+                return (
                   <div
-                    className="flex items-center justify-center overflow-hidden rounded bg-gray-100 dark:bg-gray-700"
-                    style={{ height: "260px" }}
+                    key={(stream.stream_id as string) ?? (stream.series_id as string) ?? (stream.id as string) ?? index}
+                    className="relative cursor-pointer rounded-lg border border-gray-200 bg-white p-2 transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800"
+                    onMouseEnter={(e) => handleMouseEnter(stream, e)}
+                    onMouseLeave={handleMouseLeave}
+                    onMouseMove={handleMouseMove}
+                    onClick={() => handleStreamClick(stream)}
                   >
-                    {(s.stream_icon as string) ? (
-                      <img
-                        src={s.stream_icon as string}
-                        alt=""
-                        className="max-h-full max-w-full object-contain"
-                        onError={(e) => {
-                          (
-                            e.currentTarget as HTMLImageElement
-                          ).style.display = "none";
-                        }}
-                      />
-                    ) : null}
+                    <div
+                      className="flex items-center justify-center overflow-hidden rounded bg-gray-100 dark:bg-gray-700"
+                      style={{ height: "260px" }}
+                    >
+                      {artwork ? (
+                        <img
+                          src={artwork}
+                          alt=""
+                          className="max-h-full max-w-full object-contain"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).style.display = "none";
+                          }}
+                        />
+                      ) : null}
+                    </div>
+                    <p className="mt-1 truncate text-xs font-medium">
+                      {(stream.name ?? stream.title ?? "Untitled") as string}
+                    </p>
                   </div>
-                  <p className="mt-1 truncate text-xs font-medium">
-                    {(s.name ?? s.title ?? "Untitled") as string}
-                  </p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
       </div>
       {hover && (
-        <div
-          onMouseEnter={handleTooltipEnter}
-          onMouseLeave={handleTooltipLeave}
-        >
+        <div onMouseEnter={handleTooltipEnter} onMouseLeave={handleTooltipLeave}>
           <StreamTooltip
             stream={hover.stream}
             streamUrl={hoverStreamUrl}
@@ -350,6 +356,9 @@ export default function HomePage() {
           url={player.url}
           proxyUrl={player.proxyUrl}
           title={player.title}
+          profileId={activeProfile?.id}
+          section={selectedSection}
+          streamId={player.streamId}
           onClose={() => setPlayer(null)}
         />
       )}

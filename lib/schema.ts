@@ -105,3 +105,22 @@ export const xcSeriesSeasons = pgTable(
     }),
   }),
 );
+
+export const xcPlaybackResults = pgTable(
+  "xc_playback_results",
+  {
+    profileId: text("profile_id").notNull().references(() => profiles.id, { onDelete: "cascade" }),
+    section: text("section").notNull(),
+    streamId: text("stream_id").notNull(),
+    tech: text("tech").notNull(),
+    status: text("status").notNull(),
+    message: text("message"),
+    attempts: integer("attempts").notNull().default(1),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({
+      columns: [table.profileId, table.section, table.streamId, table.tech],
+    }),
+  }),
+);

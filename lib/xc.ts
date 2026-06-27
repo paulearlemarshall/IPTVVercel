@@ -22,10 +22,15 @@ export function buildApiUrl(
   params?: Record<string, string>,
 ): string {
   const base = serverUrl.replace(/\/+$/, "");
-  const url = `${base}/player_api.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&action=${encodeURIComponent(action)}`;
+  const query = new URLSearchParams({
+    username,
+    password,
+  });
+  if (action) query.set("action", action);
+  const url = `${base}/player_api.php?${query.toString()}`;
   if (params) {
-    const query = new URLSearchParams(params);
-    return `${url}&${query.toString()}`;
+    const extra = new URLSearchParams(params);
+    return `${url}&${extra.toString()}`;
   }
   return url;
 }

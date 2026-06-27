@@ -179,6 +179,8 @@ export function useXCApi() {
       section: string,
       profileId: string,
     ): Promise<Record<string, unknown> | null> => {
+      if (section === "live") return null;
+
       const id = (stream.stream_id ?? stream.series_id ?? stream.id) as string | undefined;
       if (!id) return null;
 

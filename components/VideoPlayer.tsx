@@ -4,13 +4,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import ReactPlayer from "react-player";
 import Hls from "hls.js";
 import mpegts from "mpegts.js";
-import { AlertCircle, Copy, X } from "lucide-react";
+import { AlertCircle, Copy, ExternalLink, SkipForward, X } from "lucide-react";
 
 type PlayerTech = "auto" | "native" | "react-player" | "hls" | "mpegts" | "proxy";
 
 interface VideoPlayerProps {
   url: string;
   proxyUrl?: string | null;
+  profileId?: string;
+  section?: string;
+  streamId?: string;
   title: string;
   onClose: () => void;
 }
@@ -62,13 +65,20 @@ function getPlaybackHint(ext: string, tech: PlayerTech) {
   return "Try Proxy Native for provider network restrictions, or switch engines when the stream format does not match the selected technology.";
 }
 
-export default function VideoPlayer({ url, proxyUrl, title, onClose }: VideoPlayerProps) {
+function getNextTech(current: PlayerTech, techs: PlayerTech[]) {
+  const playable = techs.filter((tech): tech is Exclude<PlayerTech, "auto"> => tech !== "auto");
+  const index = current === "auto" ? -1 : playable.indexOf(current);
+  return playable[(index + 1) % playable.length] ?? null;
+}
+
+export default function VideoPlayer({ url, proxyUrl, profileId, section, streamId, title, onClose }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [selectedTech, setSelectedTech] = useState<PlayerTech>("auto");
   const [activeTech, setActiveTech] = useState<PlayerTech>(() => detectDefaultTech(url, proxyUrl));
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState({ res: "", speed: "", fps: "" });
   const [copied, setCopied] = useState(false);
+  const reportedSuccess = useRef<Set<string>>(new Set());
 
   const resolvedTech = useMemo<PlayerTech>(() => {
     if (selectedTech !== "auto") return selectedTech;
@@ -107,6 +117,51 @@ export default function VideoPlayer({ url, proxyUrl, title, onClose }: VideoPlay
     }
   };
 
+  const recordPlayback = async (tech: PlayerTech, status: "success" | "failure", message?: string) => {
+    if (!profileId || !section || !streamId) return;
+    try {
+      await fetch("/api/playback-result", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profileId, section, streamId, tech, status, message }),
+      });
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const failPlayback = (message: string) => {
+    setError(message);
+    recordPlayback(resolvedTech, "failure", message);
+  };
+
+  const markPlayable = (tech: PlayerTech) => {
+    setActiveTech(tech);
+    if (reportedSuccess.current.has(tech)) return;
+    reportedSuccess.current.add(tech);
+    recordPlayback(tech, "success");
+  };
+
+  const tryNextTech = () => {
+    const next = getNextTech(resolvedTech, availableTechs);
+    if (!next) return;
+    setSelectedTech(next);
+  };
+
+  const openInVlc = () => {
+    const direct = encodeURIComponent(url);
+    const ua = navigator.userAgent.toLowerCase();
+    if (ua.includes("android")) {
+      window.location.href = `intent:${url}#Intent;package=org.videolan.vlc;type=video/*;end`;
+      return;
+    }
+    if (/iphone|ipad|ipod/.test(ua)) {
+      window.location.href = `vlc-x-callback://x-callback-url/stream?url=${direct}`;
+      return;
+    }
+    window.location.href = `vlc://${url}`;
+  };
+
   useEffect(() => {
     if (resolvedTech !== "hls" || !videoRef.current) return;
 
@@ -121,7 +176,7 @@ export default function VideoPlayer({ url, proxyUrl, title, onClose }: VideoPlay
     }
 
     if (!Hls.isSupported()) {
-      setError("HLS.js is not supported in this browser.");
+      failPlayback("HLS.js is not supported in this browser.");
       return;
     }
 
@@ -129,7 +184,7 @@ export default function VideoPlayer({ url, proxyUrl, title, onClose }: VideoPlay
     hls.loadSource(playbackUrl);
     hls.attachMedia(video);
     hls.on(Hls.Events.ERROR, (_event, data) => {
-      if (data.fatal) setError(`HLS failed: ${data.details || data.type}`);
+      if (data.fatal) failPlayback(`HLS failed: ${data.details || data.type}`);
     });
 
     video.play().catch(() => {});
@@ -147,7 +202,7 @@ export default function VideoPlayer({ url, proxyUrl, title, onClose }: VideoPlay
     const video = videoRef.current;
     const mpegtsLib = (mpegts as any).default || mpegts;
     if (!mpegtsLib?.isSupported?.()) {
-      setError("MPEG-TS playback is not supported in this browser.");
+      failPlayback("MPEG-TS playback is not supported in this browser.");
       return;
     }
 
@@ -159,7 +214,7 @@ export default function VideoPlayer({ url, proxyUrl, title, onClose }: VideoPlay
     inst.attachMediaElement(video);
     inst.load();
     inst.on("error", (_typ: unknown, details: string) => {
-      setError(`MPEG-TS failed: ${details || "unknown error"}`);
+      failPlayback(`MPEG-TS failed: ${details || "unknown error"}`);
     });
 
     video.play().catch(() => {});
@@ -208,7 +263,7 @@ export default function VideoPlayer({ url, proxyUrl, title, onClose }: VideoPlay
   const videoError = () => {
     const mediaError = videoRef.current?.error;
     const msg = mediaError?.message || "The browser could not decode this stream.";
-    setError(`Playback failed: ${msg}`);
+    failPlayback(`Playback failed: ${msg}`);
   };
 
   return (
@@ -251,6 +306,15 @@ export default function VideoPlayer({ url, proxyUrl, title, onClose }: VideoPlay
                 );
               })}
             </div>
+            <button
+              type="button"
+              onClick={openInVlc}
+              className="flex items-center gap-1 rounded border border-white/15 bg-white/5 px-2.5 py-1 text-xs font-semibold text-gray-200 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white"
+              title="Open direct stream URL in VLC"
+            >
+              <ExternalLink size={13} />
+              VLC
+            </button>
             <div className="flex items-center gap-4 text-xs text-gray-300">
               {stats.res && <span>{stats.res}</span>}
               {stats.fps && <span>{stats.fps}</span>}
@@ -274,6 +338,13 @@ export default function VideoPlayer({ url, proxyUrl, title, onClose }: VideoPlay
                 <Copy size={14} />
                 {copied ? "Copied!" : "Copy Active URL"}
               </button>
+              <button
+                onClick={tryNextTech}
+                className="flex items-center gap-2 rounded bg-blue-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-400 focus:outline-none focus:ring-2 focus:ring-white"
+              >
+                <SkipForward size={14} />
+                Try Next Engine
+              </button>
             </div>
           )}
 
@@ -285,10 +356,10 @@ export default function VideoPlayer({ url, proxyUrl, title, onClose }: VideoPlay
                 playing
                 width="100%"
                 height="100%"
-                onReady={() => setActiveTech("react-player")}
+                onReady={() => markPlayable("react-player")}
                 onError={(e: any) => {
                   const msg = e?.message || e?.type || "Unknown error";
-                  setError(`ReactPlayer failed: ${msg}`);
+                  failPlayback(`ReactPlayer failed: ${msg}`);
                 }}
                 style={{ position: "absolute", top: 0, left: 0 }}
               />
@@ -300,7 +371,7 @@ export default function VideoPlayer({ url, proxyUrl, title, onClose }: VideoPlay
                 autoPlay
                 playsInline
                 className="h-full w-full"
-                onCanPlay={() => setActiveTech(resolvedTech)}
+                onCanPlay={() => markPlayable(resolvedTech)}
                 onError={videoError}
               />
             )}
