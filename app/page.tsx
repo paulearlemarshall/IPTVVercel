@@ -40,6 +40,7 @@ export default function HomePage() {
         {activeProfile && (
           <ServerSelector
             profileId={activeProfile.id}
+            servers={activeProfile.servers}
             activeServerIndex={activeProfile.activeServerIndex}
             onServerChange={handleServerChange}
           />

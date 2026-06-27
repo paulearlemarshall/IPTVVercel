@@ -1,32 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-
-interface Server {
-  id: number;
-  url: string;
-}
+import { useCallback } from "react";
 
 interface ServerSelectorProps {
   profileId: string;
+  servers: string[];
   activeServerIndex: number;
   onServerChange: (index: number) => void;
 }
 
 export default function ServerSelector({
   profileId,
+  servers,
   activeServerIndex,
   onServerChange,
 }: ServerSelectorProps) {
-  const [servers, setServers] = useState<Server[]>([]);
-
-  useEffect(() => {
-    fetch("/api/servers")
-      .then((r) => r.json())
-      .then(setServers)
-      .catch(() => {});
-  }, []);
-
   const handleChange = useCallback(
     async (e: React.ChangeEvent<HTMLSelectElement>) => {
       const index = Number(e.target.value);
@@ -47,16 +35,19 @@ export default function ServerSelector({
   if (servers.length === 0) return null;
 
   return (
-    <select
-      value={activeServerIndex}
-      onChange={handleChange}
-      className="rounded border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800"
-    >
-      {servers.map((s) => (
-        <option key={s.id} value={s.id - 1}>
-          Server {s.id}
-        </option>
-      ))}
-    </select>
+    <label className="flex items-center gap-2 text-sm">
+      <span className="text-gray-500 dark:text-gray-400">Server:</span>
+      <select
+        value={activeServerIndex}
+        onChange={handleChange}
+        className="rounded border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800"
+      >
+        {servers.map((url, i) => (
+          <option key={i} value={i}>
+            {new URL(url).host}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

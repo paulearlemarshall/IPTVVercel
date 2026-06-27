@@ -3,8 +3,33 @@ import { db } from "@/lib/db";
 import { profiles } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 
+async function ensureDefaultProfile() {
+  const existing = await db.select({ id: profiles.id }).from(profiles).limit(1);
+  if (existing.length > 0) return;
+
+  const servers: string[] = [];
+  for (let i = 1; i <= 10; i++) {
+    const url = process.env[`XC_SERVER_${i}`];
+    if (url) servers.push(url);
+  }
+
+  const username = process.env.XC_USERNAME;
+  const password = process.env.XC_PASSWORD;
+
+  if (username && password && servers.length > 0) {
+    await db.insert(profiles).values({
+      id: "default",
+      name: "Default",
+      servers,
+      username,
+      password,
+    });
+  }
+}
+
 export async function GET() {
   try {
+    await ensureDefaultProfile();
     const all = await db.select().from(profiles);
     return NextResponse.json(
       all.map((p) => ({
