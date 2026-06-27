@@ -58,6 +58,17 @@ export function useGroupedCategories(
       groups[prefix].push(cat);
     });
 
+    // Sort categories within each group alphabetically (Favorites is a single
+    // synthetic entry, so sorting it is a no-op).
+    for (const key of Object.keys(groups)) {
+      groups[key].sort((a, b) =>
+        (a.category_name || "").localeCompare(b.category_name || "", undefined, {
+          numeric: true,
+          sensitivity: "base",
+        }),
+      );
+    }
+
     return groups;
   }, [categories, searchQuery, englishOnly]);
 }
