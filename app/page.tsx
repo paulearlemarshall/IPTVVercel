@@ -7,6 +7,12 @@ import ThemeToggle from "@/components/ThemeToggle";
 import StatsModal from "@/components/StatsModal";
 import StreamTooltip from "@/components/StreamTooltip";
 import { useXCApi } from "@/hooks/useXCApi";
+import dynamic from "next/dynamic";
+
+const VideoPlayer = dynamic(
+  () => import("@/components/VideoPlayer"),
+  { ssr: false },
+);
 import { useGroupedCategories } from "@/hooks/useGroupedCategories";
 import { useFilteredStreams } from "@/hooks/useFilteredStreams";
 
@@ -23,6 +29,11 @@ interface HoverState {
   mouseY: number;
 }
 
+interface PlayerState {
+  url: string;
+  title: string;
+}
+
 const SECTIONS = ["live", "vod", "series"];
 
 export default function HomePage() {
@@ -32,9 +43,14 @@ export default function HomePage() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [englishOnly, setEnglishOnly] = useState(true);
   const [hover, setHover] = useState<HoverState | null>(null);
-  const [hoverMeta, setHoverMeta] = useState<Record<string, unknown> | null>(null);
+  const [hoverMeta, setHoverMeta] = useState<Record<string, unknown> | null>(
+    null,
+  );
   const [hoverLoading, setHoverLoading] = useState(false);
+  const [isHovering, setIsHovering] = useState(false);
+  const [player, setPlayer] = useState<PlayerState | null>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const leaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const {
     allCategories,
@@ -86,16 +102,20 @@ export default function HomePage() {
 
   const handleMouseEnter = useCallback(
     (stream: Record<string, unknown>, e: React.MouseEvent) => {
-      if (selectedSection === "live") return; // no metadata endpoint for live
-      clearTimeout(hoverTimer.current);
-      setHoverMeta(null);
-      setHoverLoading(false);
+      if (selectedSection === "live") return;
+      clearTimeout(leaveTimer.current);
+      setIsHovering(true);
 
       hoverTimer.current = setTimeout(async () => {
-        setHover({ stream, mouseX: e.clientX, mouseY: e.clientY });
+        setHoverMeta(null);
         setHoverLoading(true);
+        setHover({ stream, mouseX: e.clientX, mouseY: e.clientY });
         if (activeProfile) {
-          const meta = await fetchStreamMetadata(stream, selectedSection, activeProfile.id);
+          const meta = await fetchStreamMetadata(
+            stream,
+            selectedSection,
+            activeProfile.id,
+          );
           setHoverMeta(meta);
         }
         setHoverLoading(false);
@@ -106,9 +126,28 @@ export default function HomePage() {
 
   const handleMouseLeave = useCallback(() => {
     clearTimeout(hoverTimer.current);
-    setHover(null);
-    setHoverMeta(null);
-    setHoverLoading(false);
+    setIsHovering(false);
+    leaveTimer.current = setTimeout(() => {
+      if (!isHovering) {
+        setHover(null);
+        setHoverMeta(null);
+        setHoverLoading(false);
+      }
+    }, 300);
+  }, [isHovering]);
+
+  const handleTooltipEnter = useCallback(() => {
+    clearTimeout(leaveTimer.current);
+    setIsHovering(true);
+  }, []);
+
+  const handleTooltipLeave = useCallback(() => {
+    setIsHovering(false);
+    leaveTimer.current = setTimeout(() => {
+      setHover(null);
+      setHoverMeta(null);
+      setHoverLoading(false);
+    }, 300);
   }, []);
 
   const handleMouseMove = useCallback(
@@ -120,6 +159,33 @@ export default function HomePage() {
       }
     },
     [hover],
+  );
+
+  const handleStreamClick = useCallback(
+    async (stream: Record<string, unknown>) => {
+      if (!activeProfile) return;
+      try {
+        const res = await fetch("/api/stream-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            profileId: activeProfile.id,
+            stream,
+            section: selectedSection,
+          }),
+        });
+        const data = await res.json();
+        if (data.url) {
+          setPlayer({
+            url: data.url,
+            title: (stream.name ?? stream.title ?? "Untitled") as string,
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+    },
+    [activeProfile, selectedSection],
   );
 
   const filteredStreams = useFilteredStreams(streams, undefined, englishOnly);
@@ -188,19 +254,25 @@ export default function HomePage() {
               {filteredStreams.map((s, i) => (
                 <div
                   key={(s.stream_id as string) ?? (s.id as string) ?? i}
-                  className="relative rounded-lg border border-gray-200 bg-white p-2 transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800"
+                  className="relative cursor-pointer rounded-lg border border-gray-200 bg-white p-2 transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800"
                   onMouseEnter={(e) => handleMouseEnter(s, e)}
                   onMouseLeave={handleMouseLeave}
                   onMouseMove={handleMouseMove}
+                  onClick={() => handleStreamClick(s)}
                 >
-                  <div className="flex items-center justify-center overflow-hidden rounded bg-gray-100 dark:bg-gray-700" style={{ height: "260px" }}>
+                  <div
+                    className="flex items-center justify-center overflow-hidden rounded bg-gray-100 dark:bg-gray-700"
+                    style={{ height: "260px" }}
+                  >
                     {(s.stream_icon as string) ? (
                       <img
                         src={s.stream_icon as string}
                         alt=""
                         className="max-h-full max-w-full object-contain"
                         onError={(e) => {
-                          (e.currentTarget as HTMLImageElement).style.display = "none";
+                          (
+                            e.currentTarget as HTMLImageElement
+                          ).style.display = "none";
                         }}
                       />
                     ) : null}
@@ -215,16 +287,28 @@ export default function HomePage() {
         </div>
       </div>
       {hover && (
-        <StreamTooltip
-          stream={hover.stream}
-          metadata={hoverMeta}
-          isLoading={hoverLoading}
-          mouseX={hover.mouseX}
-          mouseY={hover.mouseY}
-          onClose={() => {
-            setHover(null);
-            setHoverMeta(null);
-          }}
+        <div
+          onMouseEnter={handleTooltipEnter}
+          onMouseLeave={handleTooltipLeave}
+        >
+          <StreamTooltip
+            stream={hover.stream}
+            metadata={hoverMeta}
+            isLoading={hoverLoading}
+            mouseX={hover.mouseX}
+            mouseY={hover.mouseY}
+            onClose={() => {
+              setHover(null);
+              setHoverMeta(null);
+            }}
+          />
+        </div>
+      )}
+      {player && (
+        <VideoPlayer
+          url={player.url}
+          title={player.title}
+          onClose={() => setPlayer(null)}
         />
       )}
     </main>
