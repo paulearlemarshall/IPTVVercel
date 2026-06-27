@@ -18,12 +18,10 @@ const BUTTONS = [
 
 export default function CatalogUpdateButtons({ englishOnly, profileId, onStatus }: CatalogUpdateButtonsProps) {
   const [running, setRunning] = useState<string | null>(null);
-  const [progress, setProgress] = useState("Idle");
 
   const runUpdate = async (section: string) => {
     if (!profileId || running) return;
     setRunning(section);
-    setProgress(`Starting ${section}...`);
     onStatus?.(`Updating ${section} catalogue...`);
     try {
       const res = await fetch("/api/catalog-update", {
@@ -48,7 +46,6 @@ export default function CatalogUpdateButtons({ englishOnly, profileId, onStatus 
           if (!line.trim()) continue;
           const event = JSON.parse(line);
           if (event.message) {
-            setProgress(event.message);
             onStatus?.(event.message);
           }
           if (event.type === "done") {
@@ -56,9 +53,7 @@ export default function CatalogUpdateButtons({ englishOnly, profileId, onStatus 
               (sum: number, row: any) => sum + (row.streams ?? 0),
               0,
             );
-            const message = `Updated ${section}: ${total} streams cached.`;
-            setProgress(message);
-            onStatus?.(message);
+            onStatus?.(`Updated ${section}: ${total} streams cached.`);
           }
           if (event.type === "error") {
             throw new Error(event.message ?? "Update failed");
@@ -66,9 +61,7 @@ export default function CatalogUpdateButtons({ englishOnly, profileId, onStatus 
         }
       }
     } catch (error) {
-      const message = `Update failed: ${error instanceof Error ? error.message : "Unknown error"}`;
-      setProgress(message);
-      onStatus?.(message);
+      onStatus?.(`Update failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
       setRunning(null);
     }
@@ -91,9 +84,6 @@ export default function CatalogUpdateButtons({ englishOnly, profileId, onStatus 
           </button>
         ))}
       </div>
-      <span className="max-w-[28rem] truncate text-xs text-gray-500 dark:text-gray-400" title={progress}>
-        {progress}
-      </span>
     </div>
   );
 }
