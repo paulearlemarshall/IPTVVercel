@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 interface StreamTooltipProps {
   stream: Record<string, unknown>;
+  streamUrl: string;
   metadata: Record<string, unknown> | null;
   isLoading: boolean;
   mouseX: number;
@@ -13,6 +14,7 @@ interface StreamTooltipProps {
 
 export default function StreamTooltip({
   stream,
+  streamUrl,
   metadata,
   isLoading,
   mouseX,
@@ -36,7 +38,7 @@ export default function StreamTooltip({
     if (top < 4) top = 4;
 
     setPos({ top, left });
-  }, [mouseX, mouseY, metadata, isLoading]);
+  }, [mouseX, mouseY, metadata, isLoading, streamUrl]);
 
   const logo =
     (stream.stream_icon as string) ||
@@ -45,8 +47,6 @@ export default function StreamTooltip({
     "";
 
   const name = (stream.name ?? stream.title ?? "Untitled") as string;
-  const ext = (stream.container_extension as string) || "";
-  const filename = ext ? `${name}.${ext}` : name;
   const year = metadata?.releasedate
     ? (metadata.releasedate as string).split("-")[0]
     : metadata?.release_date
@@ -64,9 +64,9 @@ export default function StreamTooltip({
 
   const [copied, setCopied] = useState(false);
 
-  const copyFilename = async () => {
+  const copyUrl = async () => {
     try {
-      await navigator.clipboard.writeText(filename);
+      await navigator.clipboard.writeText(streamUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch { /* ignore */ }
@@ -77,7 +77,7 @@ export default function StreamTooltip({
       <div className="fixed inset-0 z-40" onClick={onClose} />
       <div
         ref={ref}
-        className="fixed z-50 w-80 rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800"
+        className="fixed z-50 w-96 rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800"
         style={{ top: pos.top, left: pos.left }}
       >
         {isLoading ? (
@@ -100,16 +100,25 @@ export default function StreamTooltip({
               {name}
             </div>
 
-            <div className="mb-1 flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-              <span className="truncate font-mono">{filename}</span>
-              <button
-                onClick={copyFilename}
-                title="Copy filename"
-                className="shrink-0 rounded px-1 py-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
-              >
-                {copied ? "✓" : "⎘"}
-              </button>
-            </div>
+            {streamUrl && (
+              <div className="mb-2 rounded bg-gray-50 p-1.5 dark:bg-gray-700/50">
+                <div className="mb-1 flex items-center gap-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                    Stream URL
+                  </span>
+                  <button
+                    onClick={copyUrl}
+                    title="Copy stream URL"
+                    className="ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px] text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-600 dark:hover:text-gray-300"
+                  >
+                    {copied ? "Copied" : "Copy"}
+                  </button>
+                </div>
+                <p className="break-all font-mono text-[11px] leading-relaxed text-gray-500 dark:text-gray-400 select-all">
+                  {streamUrl}
+                </p>
+              </div>
+            )}
 
             <div className="mb-2 flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
               {rating > 0 && <span>★ {rating.toFixed(1)}</span>}

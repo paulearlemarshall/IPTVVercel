@@ -46,6 +46,7 @@ export default function HomePage() {
   const [hoverMeta, setHoverMeta] = useState<Record<string, unknown> | null>(
     null,
   );
+  const [hoverStreamUrl, setHoverStreamUrl] = useState("");
   const [hoverLoading, setHoverLoading] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
   const [player, setPlayer] = useState<PlayerState | null>(null);
@@ -108,15 +109,24 @@ export default function HomePage() {
 
       hoverTimer.current = setTimeout(async () => {
         setHoverMeta(null);
+        setHoverStreamUrl("");
         setHoverLoading(true);
         setHover({ stream, mouseX: e.clientX, mouseY: e.clientY });
         if (activeProfile) {
-          const meta = await fetchStreamMetadata(
-            stream,
-            selectedSection,
-            activeProfile.id,
-          );
+          const [meta, urlRes] = await Promise.all([
+            fetchStreamMetadata(stream, selectedSection, activeProfile.id),
+            fetch("/api/stream-url", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                profileId: activeProfile.id,
+                stream,
+                section: selectedSection,
+              }),
+            }).then((r) => r.json().catch(() => ({}))),
+          ]);
           setHoverMeta(meta);
+          setHoverStreamUrl(urlRes?.url || "");
         }
         setHoverLoading(false);
       }, 400);
@@ -131,6 +141,7 @@ export default function HomePage() {
       if (!isHovering) {
         setHover(null);
         setHoverMeta(null);
+        setHoverStreamUrl("");
         setHoverLoading(false);
       }
     }, 300);
@@ -146,6 +157,7 @@ export default function HomePage() {
     leaveTimer.current = setTimeout(() => {
       setHover(null);
       setHoverMeta(null);
+      setHoverStreamUrl("");
       setHoverLoading(false);
     }, 300);
   }, []);
@@ -293,6 +305,7 @@ export default function HomePage() {
         >
           <StreamTooltip
             stream={hover.stream}
+            streamUrl={hoverStreamUrl}
             metadata={hoverMeta}
             isLoading={hoverLoading}
             mouseX={hover.mouseX}
@@ -300,6 +313,7 @@ export default function HomePage() {
             onClose={() => {
               setHover(null);
               setHoverMeta(null);
+              setHoverStreamUrl("");
             }}
           />
         </div>
