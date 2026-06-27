@@ -80,7 +80,6 @@ export default function HomePage() {
   const [hoverMeta, setHoverMeta] = useState<Record<string, unknown> | null>(null);
   const [hoverStreamUrl, setHoverStreamUrl] = useState("");
   const [hoverLoading, setHoverLoading] = useState(false);
-  const [isHovering, setIsHovering] = useState(false);
   const [player, setPlayer] = useState<PlayerState | null>(null);
   const [seriesDetail, setSeriesDetail] = useState<SeriesState | null>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -177,10 +176,22 @@ export default function HomePage() {
     [selectedSection, activeProfile, fetchStreamMetadata],
   );
 
+  // Cancel any pending dismiss (mouse is over a tile or the tooltip).
+  const cancelClear = useCallback(() => {
+    clearTimeout(leaveTimer.current);
+  }, []);
+
+  // Schedule a dismiss; a short grace period lets the mouse travel from a tile
+  // into the tooltip without it vanishing. Anything else (menu, sidebar, empty
+  // space) leaves it unanswered, so the tooltip closes.
+  const scheduleClear = useCallback(() => {
+    clearTimeout(leaveTimer.current);
+    leaveTimer.current = setTimeout(clearHover, 200);
+  }, [clearHover]);
+
   const handleMouseEnter = useCallback(
     (stream: Record<string, unknown>, e: React.MouseEvent) => {
-      clearTimeout(leaveTimer.current);
-      setIsHovering(true);
+      cancelClear();
 
       if (hover) {
         doFetchHover(stream, e);
@@ -188,26 +199,21 @@ export default function HomePage() {
         hoverTimer.current = setTimeout(() => doFetchHover(stream, e), 400);
       }
     },
-    [selectedSection, hover, doFetchHover],
+    [hover, doFetchHover, cancelClear],
   );
 
   const handleMouseLeave = useCallback(() => {
     clearTimeout(hoverTimer.current);
-    setIsHovering(false);
-    leaveTimer.current = setTimeout(() => {
-      if (!isHovering) clearHover();
-    }, 300);
-  }, [isHovering, clearHover]);
+    scheduleClear();
+  }, [scheduleClear]);
 
   const handleTooltipEnter = useCallback(() => {
-    clearTimeout(leaveTimer.current);
-    setIsHovering(true);
-  }, []);
+    cancelClear();
+  }, [cancelClear]);
 
   const handleTooltipLeave = useCallback(() => {
-    setIsHovering(false);
-    leaveTimer.current = setTimeout(clearHover, 300);
-  }, [clearHover]);
+    scheduleClear();
+  }, [scheduleClear]);
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
