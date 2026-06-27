@@ -85,11 +85,11 @@ The Xtream Codes proxy is backed by Neon tables for:
 
 When the app needs categories, streams, or metadata, it checks Neon first for the active profile and server URL. If records exist, it returns those rows. If records are missing, it calls the provider API, stores the full response payloads in Neon, and returns the fresh data.
 
-The top-right DB Log button shows recent database retrieve and upsert activity from the current server instance, including successes, failures, tables, actions, row counts, and cache hit/miss messages. The log is intentionally in memory so logging does not create more database writes while debugging database writes.
+The top-right DB Log button shows recent database retrieve and upsert activity, including successes, failures, tables, actions, row counts, and cache hit/miss messages. Logs are also persisted in Neon so activity remains visible across serverless function instances.
 
 The top-right Account button calls the Xtream account endpoint with no `action` parameter and displays account status, expiry, connection counts, and server details.
 
-The Update buttons traverse the provider catalogue by section. `All` runs Live, VOD, and Series. The section buttons fetch categories, then every category's streams, and write them through the same Neon cache model. Progress is streamed back to the header so the current section and category advance while the update runs.
+The Update buttons traverse the provider catalogue by section. `All` runs Live, VOD, and Series. The section buttons fetch categories, then every category's streams, and write them through the same Neon cache model. Progress is streamed back to the header so the current section and category advance while the update runs. When EN is enabled, update jobs only traverse categories and streams that match the EN filter rules.
 
 ## EN Filter
 
@@ -99,7 +99,7 @@ For VOD, the app injects a virtual `|EN| All VOD` category when matching EN cate
 
 ## External Playback
 
-The player records whether each engine succeeds or fails for a stream and includes a `Try Next Engine` fallback control. The `VLC` button attempts to hand the direct stream URL to VLC using platform URL schemes where browsers allow it. This requires VLC to be installed and may be blocked by browser or operating-system policy.
+The player records whether each engine succeeds or fails for a stream and includes a `Try Next Engine` fallback control. The `VLC` button attempts to hand the direct stream URL to VLC using platform URL schemes where browsers allow it. This requires VLC to be installed and may be blocked by browser or operating-system policy. The `M3U` button downloads a playlist file that can be opened by VLC when direct launch is blocked.
 
 ## Repository Structure
 

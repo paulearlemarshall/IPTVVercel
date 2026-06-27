@@ -4,6 +4,7 @@ import { useState } from "react";
 import { RefreshCw } from "lucide-react";
 
 interface CatalogUpdateButtonsProps {
+  englishOnly?: boolean;
   profileId?: string;
   onStatus?: (status: string) => void;
 }
@@ -15,7 +16,7 @@ const BUTTONS = [
   { key: "series", label: "Series" },
 ];
 
-export default function CatalogUpdateButtons({ profileId, onStatus }: CatalogUpdateButtonsProps) {
+export default function CatalogUpdateButtons({ englishOnly, profileId, onStatus }: CatalogUpdateButtonsProps) {
   const [running, setRunning] = useState<string | null>(null);
   const [progress, setProgress] = useState("Idle");
 
@@ -28,7 +29,7 @@ export default function CatalogUpdateButtons({ profileId, onStatus }: CatalogUpd
       const res = await fetch("/api/catalog-update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profileId, section }),
+        body: JSON.stringify({ profileId, section, englishOnly }),
       });
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
 

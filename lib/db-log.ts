@@ -31,6 +31,8 @@ export function addDbLog(entry: Omit<DbLogEntry, "id" | "at">) {
   if (entries.length > MAX_ENTRIES) {
     entries.length = MAX_ENTRIES;
   }
+
+  void persistDbLog(entry);
 }
 
 export function getDbLog() {
@@ -46,4 +48,27 @@ export function clearDbLog() {
 
 export function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unknown error";
+}
+
+async function persistDbLog(entry: Omit<DbLogEntry, "id" | "at">) {
+  try {
+    const [{ db }, { dbActivityLogs }] = await Promise.all([
+      import("@/lib/db"),
+      import("@/lib/schema"),
+    ]);
+    await db.insert(dbActivityLogs).values({
+      operation: entry.operation,
+      status: entry.status,
+      table: entry.table,
+      action: entry.action,
+      profileId: entry.profileId,
+      section: entry.section,
+      categoryId: entry.categoryId,
+      streamId: entry.streamId,
+      count: entry.count,
+      message: entry.message,
+    });
+  } catch {
+    /* keep logging non-blocking */
+  }
 }

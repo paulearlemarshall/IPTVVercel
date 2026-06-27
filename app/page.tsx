@@ -268,7 +268,11 @@ export default function HomePage() {
             >
               EN
             </button>
-            <CatalogUpdateButtons profileId={activeProfile.id} onStatus={setStatus} />
+            <CatalogUpdateButtons
+              englishOnly={englishOnly}
+              profileId={activeProfile.id}
+              onStatus={setStatus}
+            />
             <span className="text-xs text-gray-400">{status}</span>
           </>
         )}

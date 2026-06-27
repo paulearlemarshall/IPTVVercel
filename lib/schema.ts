@@ -124,3 +124,18 @@ export const xcPlaybackResults = pgTable(
     }),
   }),
 );
+
+export const dbActivityLogs = pgTable("db_activity_logs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  operation: text("operation").notNull(),
+  status: text("status").notNull(),
+  table: text("table_name").notNull(),
+  action: text("action").notNull(),
+  profileId: text("profile_id"),
+  section: text("section"),
+  categoryId: text("category_id"),
+  streamId: text("stream_id"),
+  count: integer("row_count"),
+  message: text("message"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});

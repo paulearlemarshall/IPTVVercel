@@ -17,6 +17,17 @@ const ACTIONS: Record<Section, { categories: string; streams: string }> = {
   series: { categories: "get_series_categories", streams: "get_series" },
 };
 
+const EN_CATEGORY_PREFIXES = [
+  "EN", "UK", "US", "GB", "CA", "MULTI", "NETFLIX", "APPLE+", "DISNEY+",
+  "4K", "18", "24/7", "CHRISTMAS", "FORMULA", "FOR", "WORLDCUP", "BEIN",
+  "WC", "NZ", "AU",
+];
+
+const NON_ENGLISH_STREAM_MARKERS = [
+  "SWEDEN", "NORWAY", "DENMARK", "FINLAND", "DEUTSCH", "FRENCH",
+  "ITALIAN", "SPANISH",
+];
+
 async function fetchXc<T>(
   serverUrl: string,
   action: string,
@@ -40,13 +51,28 @@ function categoryName(category: Record<string, unknown>) {
   return String(category.category_name ?? category.name ?? category.category_id ?? "Unknown category");
 }
 
+function isEnglishCategory(category: Record<string, unknown>) {
+  const cleanName = categoryName(category).toUpperCase().replace(/^[|\s]+/, "");
+  return EN_CATEGORY_PREFIXES.some(
+    (word) =>
+      cleanName.startsWith(`${word}|`) ||
+      cleanName.startsWith(`${word} `) ||
+      cleanName === word,
+  );
+}
+
+function isEnglishStream(stream: Record<string, unknown>) {
+  const name = String(stream.name ?? stream.title ?? "").toUpperCase();
+  return !NON_ENGLISH_STREAM_MARKERS.some((word) => name.includes(word));
+}
+
 function writeEvent(controller: ReadableStreamDefaultController, encoder: TextEncoder, event: Record<string, unknown>) {
   controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
 }
 
 export async function POST(request: Request) {
   const encoder = new TextEncoder();
-  const { profileId, section } = await request.json();
+  const { profileId, section, englishOnly } = await request.json();
 
   return new Response(
     new ReadableStream({
@@ -88,7 +114,10 @@ export async function POST(request: Request) {
               profile.username,
               profile.password,
             );
-            const categoryRows = Array.isArray(categories) ? categories : [];
+            const allCategoryRows = Array.isArray(categories) ? categories : [];
+            const categoryRows = englishOnly
+              ? allCategoryRows.filter(isEnglishCategory)
+              : allCategoryRows;
             await writeCachedXcData(
               { profileId, serverUrl, action: actions.categories },
               categoryRows,
@@ -97,7 +126,9 @@ export async function POST(request: Request) {
               type: "categories",
               section: current,
               totalCategories: categoryRows.length,
-              message: `${current}: ${categoryRows.length} categories`,
+              message: englishOnly
+                ? `${current}: ${categoryRows.length}/${allCategoryRows.length} EN categories`
+                : `${current}: ${categoryRows.length} categories`,
             });
 
             let streamCount = 0;
@@ -123,7 +154,10 @@ export async function POST(request: Request) {
                   profile.password,
                   { category_id: categoryId },
                 );
-                const streamRows = Array.isArray(streams) ? streams : [];
+                const allStreamRows = Array.isArray(streams) ? streams : [];
+                const streamRows = englishOnly
+                  ? allStreamRows.filter(isEnglishStream)
+                  : allStreamRows;
                 streamCount += streamRows.length;
                 await writeCachedXcData(
                   { profileId, serverUrl, action: actions.streams, params: { category_id: categoryId } },

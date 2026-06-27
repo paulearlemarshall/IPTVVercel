@@ -162,6 +162,17 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
     window.location.href = `vlc://${url}`;
   };
 
+  const downloadVlcPlaylist = () => {
+    const playlist = `#EXTM3U\n#EXTINF:-1,${title.replace(/\r?\n/g, " ")}\n${url}\n`;
+    const blob = new Blob([playlist], { type: "audio/x-mpegurl" });
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = `${title.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "stream"}.m3u`;
+    link.click();
+    URL.revokeObjectURL(href);
+  };
+
   useEffect(() => {
     if (resolvedTech !== "hls" || !videoRef.current) return;
 
@@ -314,6 +325,15 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
             >
               <ExternalLink size={13} />
               VLC
+            </button>
+            <button
+              type="button"
+              onClick={downloadVlcPlaylist}
+              className="flex items-center gap-1 rounded border border-white/15 bg-white/5 px-2.5 py-1 text-xs font-semibold text-gray-200 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white"
+              title="Download an M3U playlist file for VLC"
+            >
+              <ExternalLink size={13} />
+              M3U
             </button>
             <div className="flex items-center gap-4 text-xs text-gray-300">
               {stats.res && <span>{stats.res}</span>}
