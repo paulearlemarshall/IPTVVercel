@@ -193,12 +193,12 @@ export default function HomePage() {
                   onMouseLeave={handleMouseLeave}
                   onMouseMove={handleMouseMove}
                 >
-                  <div className="aspect-video overflow-hidden rounded bg-gray-100 dark:bg-gray-700">
+                  <div className="flex items-center justify-center overflow-hidden rounded bg-gray-100 dark:bg-gray-700" style={{ height: "260px" }}>
                     {(s.stream_icon as string) ? (
                       <img
                         src={s.stream_icon as string}
                         alt=""
-                        className="h-full w-full object-cover"
+                        className="max-h-full max-w-full object-contain"
                         onError={(e) => {
                           (e.currentTarget as HTMLImageElement).style.display = "none";
                         }}
