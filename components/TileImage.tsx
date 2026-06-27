@@ -1,5 +1,6 @@
 "use client";
 
+import { ImageOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 interface TileImageProps {
@@ -13,12 +14,18 @@ interface TileImageProps {
 // container's clipping, so root=null (the viewport) is correct here.
 const ROOT_MARGIN = "300px 0px";
 
+// Session-wide record of URLs that failed to load, so a known-bad image is never
+// requested again — including when a tile remounts after navigating back to a
+// category. Cleared on full page reload (in-memory only).
+const failedSrc = new Set<string>();
+
 export default function TileImage({ src, className }: TileImageProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState(() => failedSrc.has(src));
 
   useEffect(() => {
+    if (failedSrc.has(src)) return;
     const el = ref.current;
     if (!el) return;
     if (typeof IntersectionObserver === "undefined") {
@@ -36,26 +43,30 @@ export default function TileImage({ src, className }: TileImageProps) {
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [src]);
 
-  // Reset when the tile is reused for a different stream (key changes usually
-  // remount, but guard in case React reuses the node).
+  // Re-evaluate when the tile is reused for a different stream.
   useEffect(() => {
-    setFailed(false);
+    setFailed(failedSrc.has(src));
   }, [src]);
 
   return (
     <div ref={ref} className="flex h-full w-full items-center justify-center">
-      {visible && !failed && (
+      {failed ? (
+        <ImageOff className="text-gray-300 dark:text-gray-600" size={28} aria-label="Image unavailable" />
+      ) : visible ? (
         <img
           src={src}
           alt=""
           loading="lazy"
           decoding="async"
           className={className}
-          onError={() => setFailed(true)}
+          onError={() => {
+            failedSrc.add(src);
+            setFailed(true);
+          }}
         />
-      )}
+      ) : null}
     </div>
   );
 }
