@@ -9,7 +9,6 @@ interface StreamTooltipProps {
   isLoading: boolean;
   mouseX: number;
   mouseY: number;
-  onClose: () => void;
 }
 
 export default function StreamTooltip({
@@ -19,7 +18,6 @@ export default function StreamTooltip({
   isLoading,
   mouseX,
   mouseY,
-  onClose,
 }: StreamTooltipProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ top: 0, left: 0 });
@@ -74,7 +72,6 @@ export default function StreamTooltip({
 
   return (
     <>
-      <div className="fixed inset-0 z-40" onClick={onClose} />
       <div
         ref={ref}
         className="fixed z-50 w-96 rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800"

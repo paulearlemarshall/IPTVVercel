@@ -36,6 +36,28 @@ function getPlayableUrl(tech: PlayerTech, directUrl: string, proxyUrl?: string |
   return tech === "proxy" && proxyUrl ? proxyUrl : directUrl;
 }
 
+function getUrlExtension(url: string) {
+  const path = url.split("?")[0] ?? "";
+  const match = path.match(/\.([a-z0-9]{1,8})$/i);
+  return match?.[1]?.toLowerCase() ?? "";
+}
+
+function getPlaybackHint(ext: string, tech: PlayerTech) {
+  if (ext === "mkv") {
+    return "MKV depends on browser container and codec support. If it still fails, the stream may need server-side transcoding or an external player.";
+  }
+  if (ext === "mp4" || ext === "m4v") {
+    return "For MP4 playback, try Proxy Native when the provider blocks browser CORS or Range requests. The video still needs browser-supported codecs such as H.264 video and AAC audio.";
+  }
+  if (tech === "hls") {
+    return "For HLS streams, failures are usually caused by playlist access, segment CORS, or unsupported codecs.";
+  }
+  if (tech === "mpegts") {
+    return "For transport streams, MPEG-TS usually works best for live channels when the browser can decode the included audio and video codecs.";
+  }
+  return "Try Proxy Native for provider network restrictions, or switch engines when the stream format does not match the selected technology.";
+}
+
 export default function VideoPlayer({ url, proxyUrl, title, onClose }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [selectedTech, setSelectedTech] = useState<PlayerTech>("auto");
@@ -50,6 +72,8 @@ export default function VideoPlayer({ url, proxyUrl, title, onClose }: VideoPlay
   }, [selectedTech, url]);
 
   const playbackUrl = getPlayableUrl(resolvedTech, url, proxyUrl);
+  const sourceExtension = getUrlExtension(url);
+  const playbackHint = getPlaybackHint(sourceExtension, resolvedTech);
   const availableTechs = useMemo<PlayerTech[]>(
     () => (proxyUrl ? ["auto", "native", "react-player", "hls", "mpegts", "proxy"] : ["auto", "native", "react-player", "hls", "mpegts"]),
     [proxyUrl],
@@ -237,7 +261,7 @@ export default function VideoPlayer({ url, proxyUrl, title, onClose }: VideoPlay
               <AlertCircle size={48} className="text-red-400" />
               <p className="max-w-md text-lg">{error}</p>
               <p className="max-w-md text-sm text-gray-300">
-                MKV depends on browser container and codec support. Try Proxy Native for CORS issues, or MPEG-TS/HLS when the source is a live transport stream.
+                {playbackHint}
               </p>
               <button
                 onClick={copyUrl}

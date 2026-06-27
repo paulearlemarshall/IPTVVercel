@@ -321,11 +321,6 @@ export default function HomePage() {
             isLoading={hoverLoading}
             mouseX={hover.mouseX}
             mouseY={hover.mouseY}
-            onClose={() => {
-              setHover(null);
-              setHoverMeta(null);
-              setHoverStreamUrl("");
-            }}
           />
         </div>
       )}
