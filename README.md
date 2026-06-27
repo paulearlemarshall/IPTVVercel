@@ -6,6 +6,7 @@ IPTVVercel is a Next.js IPTV browser app for Xtream Codes-style providers. It ru
 
 - Browse live, movie, and series categories from configured IPTV servers.
 - Switch between configured server endpoints for the active profile.
+- Cache live, VOD, and series catalogues in Neon after the first provider fetch.
 - Preview stream metadata and stream URLs from the catalogue.
 - Play streams in an embedded player with selectable playback technology:
   - Auto detection
@@ -67,6 +68,19 @@ The player has a technology selector in the top bar so the active engine is visi
 Use `Proxy Native` when direct MP4/VOD playback fails because the IPTV host blocks browser CORS or Range requests. The proxy reconstructs URLs from saved profile data and stream IDs instead of accepting arbitrary external URLs.
 
 MKV playback still depends on the browser's container and codec support. If a browser cannot decode a given MKV file, switching engines may not overcome that container limitation without server-side transcoding.
+
+## Catalogue Cache
+
+The Xtream Codes proxy is backed by Neon tables for:
+
+- Live, VOD, and series category buckets.
+- Per-category stream lists.
+- VOD and series metadata responses.
+- Series episodes flattened by season while retaining the full raw episode payload.
+
+When the app needs categories, streams, or metadata, it checks Neon first for the active profile and server URL. If records exist, it returns those rows. If records are missing, it calls the provider API, stores the full response payloads in Neon, and returns the fresh data.
+
+The top-right DB Log button shows recent database retrieve and upsert activity from the current server instance, including successes, failures, tables, actions, row counts, and cache hit/miss messages. The log is intentionally in memory so logging does not create more database writes while debugging database writes.
 
 ## Repository Structure
 

@@ -5,6 +5,7 @@ import ServerSelector from "@/components/ServerSelector";
 import Sidebar from "@/components/Sidebar";
 import ThemeToggle from "@/components/ThemeToggle";
 import StatsModal from "@/components/StatsModal";
+import DbLogModal from "@/components/DbLogModal";
 import StreamTooltip from "@/components/StreamTooltip";
 import { useXCApi } from "@/hooks/useXCApi";
 import dynamic from "next/dynamic";
@@ -246,6 +247,7 @@ export default function HomePage() {
           </>
         )}
         <div className="ml-auto flex items-center gap-1">
+          <DbLogModal />
           <StatsModal />
           <ThemeToggle />
         </div>

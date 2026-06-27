@@ -4,6 +4,7 @@ import { profiles } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 import { buildApiUrl } from "@/lib/xc";
 import { apiCache } from "@/lib/cache";
+import { isDbCacheableAction, readCachedXcData, writeCachedXcData } from "@/lib/xc-db-cache";
 
 export async function POST(request: Request) {
   try {
@@ -30,8 +31,18 @@ export async function POST(request: Request) {
       params,
     );
 
+    if (isDbCacheableAction(action)) {
+      const cached = await readCachedXcData({ profileId, serverUrl, action, params });
+      if (cached) {
+        return NextResponse.json(cached);
+      }
+    }
+
     const cached = apiCache.get(apiUrl);
     if (cached) {
+      if (isDbCacheableAction(action)) {
+        await writeCachedXcData({ profileId, serverUrl, action, params }, cached.data);
+      }
       return NextResponse.json(cached.data);
     }
 
@@ -44,6 +55,9 @@ export async function POST(request: Request) {
     }
 
     const data = await res.json();
+    if (isDbCacheableAction(action)) {
+      await writeCachedXcData({ profileId, serverUrl, action, params }, data);
+    }
     apiCache.set(apiUrl, data);
     return NextResponse.json(data);
   } catch {
