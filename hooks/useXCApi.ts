@@ -111,6 +111,7 @@ export function useXCApi() {
   const fetchStreams = useCallback(
     async (section: string, catId: string, profileId: string, forceRefresh = false) => {
       setIsLoading(true);
+      setStreams([]); // clear stale tiles so a new category never shows the previous one's streams
       setStatus("Loading streams...");
 
       const actionMap: Record<string, string> = {

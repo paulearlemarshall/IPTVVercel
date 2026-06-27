@@ -360,6 +360,8 @@ export default function HomePage() {
                         <img
                           src={artwork}
                           alt=""
+                          loading="lazy"
+                          decoding="async"
                           className="max-h-full max-w-full object-contain"
                           onError={(e) => {
                             (e.currentTarget as HTMLImageElement).style.display = "none";
