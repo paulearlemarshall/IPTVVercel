@@ -3,9 +3,7 @@ import { db } from "@/lib/db";
 import { profiles } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 import { buildApiUrl } from "@/lib/xc";
-
-const cache = new Map<string, { data: unknown; expiry: number }>();
-const CACHE_TTL = 86_400_000;
+import { apiCache } from "@/lib/cache";
 
 export async function POST(request: Request) {
   try {
@@ -32,8 +30,8 @@ export async function POST(request: Request) {
       params,
     );
 
-    const cached = cache.get(apiUrl);
-    if (cached && cached.expiry > Date.now()) {
+    const cached = apiCache.get(apiUrl);
+    if (cached) {
       return NextResponse.json(cached.data);
     }
 
@@ -46,7 +44,7 @@ export async function POST(request: Request) {
     }
 
     const data = await res.json();
-    cache.set(apiUrl, { data, expiry: Date.now() + CACHE_TTL });
+    apiCache.set(apiUrl, data);
     return NextResponse.json(data);
   } catch {
     return NextResponse.json({ error: "XC API request failed" }, { status: 500 });

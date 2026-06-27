@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import ServerSelector from "@/components/ServerSelector";
 import Sidebar from "@/components/Sidebar";
+import ThemeToggle from "@/components/ThemeToggle";
+import StatsModal from "@/components/StatsModal";
 import { useXCApi } from "@/hooks/useXCApi";
 import { useGroupedCategories } from "@/hooks/useGroupedCategories";
 
@@ -74,7 +76,7 @@ export default function HomePage() {
 
   return (
     <main className="flex h-screen flex-col">
-      <header className="flex items-center gap-4 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
+      <header className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
         <h1 className="text-lg font-semibold">IPTV Player</h1>
         {activeProfile && (
           <>
@@ -87,6 +89,10 @@ export default function HomePage() {
             <span className="text-xs text-gray-400">{status}</span>
           </>
         )}
+        <div className="ml-auto flex items-center gap-1">
+          <StatsModal />
+          <ThemeToggle />
+        </div>
       </header>
       <div className="flex flex-1 overflow-hidden">
         {activeProfile && (
