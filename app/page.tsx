@@ -11,6 +11,7 @@ import SeriesDetailModal from "@/components/SeriesDetailModal";
 import StatsModal from "@/components/StatsModal";
 import StreamTooltip from "@/components/StreamTooltip";
 import ThemeToggle from "@/components/ThemeToggle";
+import TileImage from "@/components/TileImage";
 import { useFilteredStreams } from "@/hooks/useFilteredStreams";
 import { useGroupedCategories } from "@/hooks/useGroupedCategories";
 import { useXCApi } from "@/hooks/useXCApi";
@@ -363,15 +364,9 @@ export default function HomePage() {
                       style={{ height: "260px" }}
                     >
                       {artwork ? (
-                        <img
+                        <TileImage
                           src={artwork}
-                          alt=""
-                          loading="lazy"
-                          decoding="async"
                           className="max-h-full max-w-full object-contain"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLImageElement).style.display = "none";
-                          }}
                         />
                       ) : null}
                     </div>
