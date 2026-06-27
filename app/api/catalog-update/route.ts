@@ -123,6 +123,7 @@ export async function POST(request: Request) {
             await writeCachedXcData(
               { profileId, serverUrl, action: actions.categories },
               categoryRows,
+              { replace: !englishOnly },
             );
             writeEvent(controller, encoder, {
               type: "categories",
@@ -164,6 +165,7 @@ export async function POST(request: Request) {
                 await writeCachedXcData(
                   { profileId, serverUrl, action: actions.streams, params: { category_id: categoryId } },
                   streamRows,
+                  { replace: !englishOnly },
                 );
                 writeEvent(controller, encoder, {
                   type: "categoryDone",

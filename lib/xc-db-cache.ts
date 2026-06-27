@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, lt, sql } from "drizzle-orm";
 import { addDbLog, errorMessage } from "@/lib/db-log";
 import { db } from "@/lib/db";
 import { xcCategories, xcSeriesEpisodes, xcSeriesSeasons, xcStreamMetadata, xcStreams } from "@/lib/schema";
@@ -35,6 +35,21 @@ function isStale(rows: { updatedAt: unknown }[]): boolean {
     if (t > newest) newest = t;
   }
   return Date.now() - newest > DB_CACHE_TTL_MS;
+}
+
+// Postgres caps bound parameters per statement (~65535). Batch inserts in
+// chunks so a large category writes in a handful of round-trips instead of one
+// awaited statement per row.
+const CHUNK_SIZE = 500;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 const CATEGORY_ACTIONS: Record<string, Section> = {
@@ -256,12 +271,16 @@ export async function readCachedXcData(ctx: CacheContext) {
   return null;
 }
 
-export async function writeCachedXcData(ctx: CacheContext, data: unknown) {
+export async function writeCachedXcData(ctx: CacheContext, data: unknown, options?: { replace?: boolean }) {
+  // replace=true deletes rows for the key that were not part of this write
+  // (i.e. removed upstream), so the cache mirrors the source. Callers that write
+  // a deliberately filtered subset (e.g. EN-only catalogue update) pass false.
+  const replace = options?.replace ?? true;
   const now = new Date();
   const categorySection = CATEGORY_ACTIONS[ctx.action];
   if (categorySection && Array.isArray(data)) {
     const rows = data
-      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+      .filter(isRecord)
       .map((item) => ({
         profileId: ctx.profileId,
         serverUrl: ctx.serverUrl,
@@ -275,19 +294,34 @@ export async function writeCachedXcData(ctx: CacheContext, data: unknown) {
       .filter((row) => row.categoryId);
 
     try {
-      for (const row of rows) {
+      for (const part of chunk(rows, CHUNK_SIZE)) {
         await db
           .insert(xcCategories)
-          .values(row)
+          .values(part)
           .onConflictDoUpdate({
             target: [xcCategories.profileId, xcCategories.serverUrl, xcCategories.section, xcCategories.categoryId],
             set: {
-              name: row.name,
-              parentId: row.parentId,
-              raw: row.raw,
-              updatedAt: row.updatedAt,
+              name: sql`excluded.name`,
+              parentId: sql`excluded.parent_id`,
+              raw: sql`excluded.raw`,
+              updatedAt: sql`excluded.updated_at`,
             },
           });
+      }
+      let removed = 0;
+      if (replace && rows.length > 0) {
+        const deleted = await db
+          .delete(xcCategories)
+          .where(
+            and(
+              eq(xcCategories.profileId, ctx.profileId),
+              eq(xcCategories.serverUrl, ctx.serverUrl),
+              eq(xcCategories.section, categorySection),
+              lt(xcCategories.updatedAt, now),
+            ),
+          )
+          .returning({ categoryId: xcCategories.categoryId });
+        removed = deleted.length;
       }
       addDbLog({
         operation: "update",
@@ -297,7 +331,7 @@ export async function writeCachedXcData(ctx: CacheContext, data: unknown) {
         profileId: ctx.profileId,
         section: categorySection,
         count: rows.length,
-        message: "Upserted category rows",
+        message: removed ? `Upserted category rows, removed ${removed} stale` : "Upserted category rows",
       });
     } catch (error) {
       addDbLog({
@@ -319,7 +353,7 @@ export async function writeCachedXcData(ctx: CacheContext, data: unknown) {
   if (streamSection && Array.isArray(data)) {
     const categoryId = categoryIdFromParams(ctx.params);
     const rows = data
-      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+      .filter(isRecord)
       .map((item) => ({
         profileId: ctx.profileId,
         serverUrl: ctx.serverUrl,
@@ -333,18 +367,34 @@ export async function writeCachedXcData(ctx: CacheContext, data: unknown) {
       .filter((row) => row.streamId);
 
     try {
-      for (const row of rows) {
+      for (const part of chunk(rows, CHUNK_SIZE)) {
         await db
           .insert(xcStreams)
-          .values(row)
+          .values(part)
           .onConflictDoUpdate({
             target: [xcStreams.profileId, xcStreams.serverUrl, xcStreams.section, xcStreams.categoryId, xcStreams.streamId],
             set: {
-              name: row.name,
-              raw: row.raw,
-              updatedAt: row.updatedAt,
+              name: sql`excluded.name`,
+              raw: sql`excluded.raw`,
+              updatedAt: sql`excluded.updated_at`,
             },
           });
+      }
+      let removed = 0;
+      if (replace && rows.length > 0) {
+        const deleted = await db
+          .delete(xcStreams)
+          .where(
+            and(
+              eq(xcStreams.profileId, ctx.profileId),
+              eq(xcStreams.serverUrl, ctx.serverUrl),
+              eq(xcStreams.section, streamSection),
+              eq(xcStreams.categoryId, categoryId),
+              lt(xcStreams.updatedAt, now),
+            ),
+          )
+          .returning({ streamId: xcStreams.streamId });
+        removed = deleted.length;
       }
       addDbLog({
         operation: "update",
@@ -355,7 +405,7 @@ export async function writeCachedXcData(ctx: CacheContext, data: unknown) {
         section: streamSection,
         categoryId,
         count: rows.length,
-        message: "Upserted stream rows",
+        message: removed ? `Upserted stream rows, removed ${removed} stale` : "Upserted stream rows",
       });
     } catch (error) {
       addDbLog({
@@ -435,28 +485,41 @@ export async function writeCachedXcData(ctx: CacheContext, data: unknown) {
 
   const seasons = getSeasons(raw);
   try {
-    for (const season of seasons) {
+    const seasonRows = seasons.map((season) => ({
+      profileId: ctx.profileId,
+      serverUrl: ctx.serverUrl,
+      seriesId: streamId,
+      seasonNumber: season.seasonNumber,
+      name: season.name,
+      episodeCount: season.episodeCount,
+      raw: season.raw,
+      updatedAt: now,
+    }));
+    for (const part of chunk(seasonRows, CHUNK_SIZE)) {
       await db
         .insert(xcSeriesSeasons)
-        .values({
-          profileId: ctx.profileId,
-          serverUrl: ctx.serverUrl,
-          seriesId: streamId,
-          seasonNumber: season.seasonNumber,
-          name: season.name,
-          episodeCount: season.episodeCount,
-          raw: season.raw,
-          updatedAt: now,
-        })
+        .values(part)
         .onConflictDoUpdate({
           target: [xcSeriesSeasons.profileId, xcSeriesSeasons.serverUrl, xcSeriesSeasons.seriesId, xcSeriesSeasons.seasonNumber],
           set: {
-            name: season.name,
-            episodeCount: season.episodeCount,
-            raw: season.raw,
-            updatedAt: now,
+            name: sql`excluded.name`,
+            episodeCount: sql`excluded.episode_count`,
+            raw: sql`excluded.raw`,
+            updatedAt: sql`excluded.updated_at`,
           },
         });
+    }
+    if (replace && seasonRows.length > 0) {
+      await db
+        .delete(xcSeriesSeasons)
+        .where(
+          and(
+            eq(xcSeriesSeasons.profileId, ctx.profileId),
+            eq(xcSeriesSeasons.serverUrl, ctx.serverUrl),
+            eq(xcSeriesSeasons.seriesId, streamId),
+            lt(xcSeriesSeasons.updatedAt, now),
+          ),
+        );
     }
     addDbLog({
       operation: "update",
@@ -486,29 +549,42 @@ export async function writeCachedXcData(ctx: CacheContext, data: unknown) {
 
   const episodes = getEpisodes(raw);
   try {
-    for (const episode of episodes) {
+    const episodeRows = episodes.map((episode) => ({
+      profileId: ctx.profileId,
+      serverUrl: ctx.serverUrl,
+      seriesId: streamId,
+      seasonNumber: episode.seasonNumber,
+      episodeId: episode.episodeId,
+      episodeNum: episode.episodeNum,
+      title: episode.title,
+      raw: episode.raw,
+      updatedAt: now,
+    }));
+    for (const part of chunk(episodeRows, CHUNK_SIZE)) {
       await db
         .insert(xcSeriesEpisodes)
-        .values({
-          profileId: ctx.profileId,
-          serverUrl: ctx.serverUrl,
-          seriesId: streamId,
-          seasonNumber: episode.seasonNumber,
-          episodeId: episode.episodeId,
-          episodeNum: episode.episodeNum,
-          title: episode.title,
-          raw: episode.raw,
-          updatedAt: now,
-        })
+        .values(part)
         .onConflictDoUpdate({
           target: [xcSeriesEpisodes.profileId, xcSeriesEpisodes.serverUrl, xcSeriesEpisodes.seriesId, xcSeriesEpisodes.seasonNumber, xcSeriesEpisodes.episodeId],
           set: {
-            episodeNum: episode.episodeNum,
-            title: episode.title,
-            raw: episode.raw,
-            updatedAt: now,
+            episodeNum: sql`excluded.episode_num`,
+            title: sql`excluded.title`,
+            raw: sql`excluded.raw`,
+            updatedAt: sql`excluded.updated_at`,
           },
         });
+    }
+    if (replace && episodeRows.length > 0) {
+      await db
+        .delete(xcSeriesEpisodes)
+        .where(
+          and(
+            eq(xcSeriesEpisodes.profileId, ctx.profileId),
+            eq(xcSeriesEpisodes.serverUrl, ctx.serverUrl),
+            eq(xcSeriesEpisodes.seriesId, streamId),
+            lt(xcSeriesEpisodes.updatedAt, now),
+          ),
+        );
     }
     addDbLog({
       operation: "update",
