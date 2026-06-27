@@ -32,6 +32,10 @@ function detectTech(url: string): PlayerTech {
   return "react-player";
 }
 
+function detectDefaultTech(url: string, proxyUrl?: string | null): PlayerTech {
+  return proxyUrl ? "proxy" : detectTech(url);
+}
+
 function getPlayableUrl(tech: PlayerTech, directUrl: string, proxyUrl?: string | null) {
   return tech === "proxy" && proxyUrl ? proxyUrl : directUrl;
 }
@@ -61,21 +65,21 @@ function getPlaybackHint(ext: string, tech: PlayerTech) {
 export default function VideoPlayer({ url, proxyUrl, title, onClose }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [selectedTech, setSelectedTech] = useState<PlayerTech>("auto");
-  const [activeTech, setActiveTech] = useState<PlayerTech>("react-player");
+  const [activeTech, setActiveTech] = useState<PlayerTech>(() => detectDefaultTech(url, proxyUrl));
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState({ res: "", speed: "", fps: "" });
   const [copied, setCopied] = useState(false);
 
   const resolvedTech = useMemo<PlayerTech>(() => {
     if (selectedTech !== "auto") return selectedTech;
-    return detectTech(url);
-  }, [selectedTech, url]);
+    return detectDefaultTech(url, proxyUrl);
+  }, [selectedTech, url, proxyUrl]);
 
   const playbackUrl = getPlayableUrl(resolvedTech, url, proxyUrl);
   const sourceExtension = getUrlExtension(url);
   const playbackHint = getPlaybackHint(sourceExtension, resolvedTech);
   const availableTechs = useMemo<PlayerTech[]>(
-    () => (proxyUrl ? ["auto", "native", "react-player", "hls", "mpegts", "proxy"] : ["auto", "native", "react-player", "hls", "mpegts"]),
+    () => (proxyUrl ? ["auto", "proxy", "native", "react-player", "hls", "mpegts"] : ["auto", "native", "react-player", "hls", "mpegts"]),
     [proxyUrl],
   );
 

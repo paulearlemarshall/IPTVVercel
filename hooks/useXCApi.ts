@@ -8,9 +8,46 @@ interface Category {
   parent_id: number;
 }
 
+const ALL_EN_VOD_CATEGORY_ID = "__all_en_vod__";
+const EN_CATEGORY_PREFIXES = [
+  "EN", "UK", "US", "GB", "CA", "MULTI", "NETFLIX", "APPLE+", "DISNEY+",
+  "4K", "18", "24/7", "CHRISTMAS", "FORMULA", "FOR", "WORLDCUP", "BEIN",
+  "WC", "NZ", "AU",
+];
+
 type ApiResult<T> =
   | { success: true; data: T }
   | { success: false; error: string };
+
+function cleanCategoryName(category: Category) {
+  return (category.category_name || "").toUpperCase().replace(/^[|\s]+/, "");
+}
+
+function isEnglishCategory(category: Category) {
+  const cleanName = cleanCategoryName(category);
+  return EN_CATEGORY_PREFIXES.some(
+    (word) =>
+      cleanName.startsWith(`${word}|`) ||
+      cleanName.startsWith(`${word} `) ||
+      cleanName === word,
+  );
+}
+
+function withSyntheticAllEnVod(categories: Category[]) {
+  if (!categories.some(isEnglishCategory)) return categories;
+  return [
+    {
+      category_id: ALL_EN_VOD_CATEGORY_ID,
+      category_name: "|EN| All VOD",
+      parent_id: 0,
+    },
+    ...categories,
+  ];
+}
+
+function getStreamKey(stream: Record<string, unknown>, index: number) {
+  return String(stream.stream_id ?? stream.id ?? `${stream.name ?? stream.title ?? "stream"}-${index}`);
+}
 
 export function useXCApi() {
   const [allCategories, setAllCategories] = useState<Record<string, Category[]>>({
@@ -63,7 +100,8 @@ export function useXCApi() {
       }
 
       const cats = Array.isArray(result.data) ? result.data : [];
-      setAllCategories((prev) => ({ ...prev, [section]: cats }));
+      const categories = section === "vod" ? withSyntheticAllEnVod(cats) : cats;
+      setAllCategories((prev) => ({ ...prev, [section]: categories }));
       setStatus(`Loaded ${cats.length} ${section} categories.`);
       setIsLoading(false);
     },
@@ -81,6 +119,44 @@ export function useXCApi() {
         series: "get_series",
       };
 
+      if (section === "vod" && catId === ALL_EN_VOD_CATEGORY_ID) {
+        const categories = allCategories.vod.filter(
+          (category) =>
+            category.category_id !== ALL_EN_VOD_CATEGORY_ID &&
+            isEnglishCategory(category),
+        );
+        const seen = new Set<string>();
+        const merged: Record<string, unknown>[] = [];
+
+        for (const [index, category] of categories.entries()) {
+          setStatus(`Loading All EN VOD ${index + 1}/${categories.length}...`);
+          const result = await proxyRequest<Record<string, unknown>[]>(
+            actionMap.vod,
+            profileId,
+            { category_id: category.category_id },
+          );
+
+          if (!result.success) {
+            setStatus(`Error: ${result.error}`);
+            setIsLoading(false);
+            return;
+          }
+
+          const data = Array.isArray(result.data) ? result.data : [];
+          data.forEach((stream, streamIndex) => {
+            const key = getStreamKey(stream, streamIndex);
+            if (seen.has(key)) return;
+            seen.add(key);
+            merged.push(stream);
+          });
+        }
+
+        setStreams(merged);
+        setStatus(`Loaded ${merged.length} All EN VOD streams.`);
+        setIsLoading(false);
+        return;
+      }
+
       const params = catId ? { category_id: catId } : undefined;
       const result = await proxyRequest<Record<string, unknown>[]>(actionMap[section], profileId, params);
       if (!result.success) {
@@ -94,7 +170,7 @@ export function useXCApi() {
       setStatus(`Loaded ${data.length} streams.`);
       setIsLoading(false);
     },
-    [proxyRequest],
+    [allCategories.vod, proxyRequest],
   );
 
   const fetchStreamMetadata = useCallback(

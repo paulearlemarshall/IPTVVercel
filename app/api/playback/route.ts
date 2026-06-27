@@ -61,7 +61,10 @@ export async function GET(request: Request) {
 
     const range = safeHeader(request.headers.get("range"));
     const upstream = await fetch(upstreamUrl, {
-      headers: range ? { range } : undefined,
+      headers: {
+        ...(range ? { range } : {}),
+        "user-agent": request.headers.get("user-agent") || "IPTVVercel/1.0",
+      },
       redirect: "follow",
     });
 
@@ -79,6 +82,10 @@ export async function GET(request: Request) {
       const value = upstream.headers.get(name);
       if (value) headers.set(name, value);
     }
+
+    headers.set("content-disposition", "inline");
+    headers.set("x-content-type-options", "nosniff");
+    headers.set("cache-control", headers.get("cache-control") || "private, no-transform");
 
     if (!headers.has("content-type")) {
       headers.set("content-type", section === "live" ? "video/mp2t" : CONTENT_TYPES[ext] ?? "application/octet-stream");

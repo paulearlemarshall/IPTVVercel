@@ -15,6 +15,7 @@ IPTVVercel is a Next.js IPTV browser app for Xtream Codes-style providers. It ru
   - HLS.js
   - MPEG-TS via `mpegts.js`
   - Same-origin proxy native playback for servers that block direct browser/CORS/Range playback
+- Filter categories and streams with an EN toggle, including a synthetic `|EN| All VOD` category that aggregates EN VOD buckets.
 - Light and dark theme support.
 
 ## Stack
@@ -63,9 +64,9 @@ npm run build
 
 ## Playback Notes
 
-The player has a technology selector in the top bar so the active engine is visible while testing streams. `Auto` chooses HLS.js for `.m3u8`, MPEG-TS for `.ts` or `output=ts`, native browser video for common file extensions, and ReactPlayer otherwise.
+The player has a technology selector in the top bar so the active engine is visible while testing streams. `Auto` prefers Proxy Native whenever the app can construct a same-origin playback URL. If a proxy URL is unavailable, `Auto` chooses HLS.js for `.m3u8`, MPEG-TS for `.ts` or `output=ts`, native browser video for common file extensions, and ReactPlayer otherwise.
 
-Use `Proxy Native` when direct MP4/VOD playback fails because the IPTV host blocks browser CORS or Range requests. The proxy reconstructs URLs from saved profile data and stream IDs instead of accepting arbitrary external URLs.
+`Proxy Native` is the default because it has the broadest success rate with IPTV hosts that block browser CORS or Range requests. The proxy reconstructs URLs from saved profile data and stream IDs instead of accepting arbitrary external URLs, forwards byte-range requests, asks the upstream with the browser user-agent, and returns inline video headers to the browser.
 
 MKV playback still depends on the browser's container and codec support. If a browser cannot decode a given MKV file, switching engines may not overcome that container limitation without server-side transcoding.
 
@@ -81,6 +82,12 @@ The Xtream Codes proxy is backed by Neon tables for:
 When the app needs categories, streams, or metadata, it checks Neon first for the active profile and server URL. If records exist, it returns those rows. If records are missing, it calls the provider API, stores the full response payloads in Neon, and returns the fresh data.
 
 The top-right DB Log button shows recent database retrieve and upsert activity from the current server instance, including successes, failures, tables, actions, row counts, and cache hit/miss messages. The log is intentionally in memory so logging does not create more database writes while debugging database writes.
+
+## EN Filter
+
+The EN toggle is on by default. Category filtering uses an allowlist of prefixes such as `EN`, `UK`, `US`, `GB`, `CA`, `MULTI`, `NETFLIX`, `APPLE+`, `DISNEY+`, `4K`, `24/7`, `BEIN`, `NZ`, and `AU`. Stream filtering removes obvious non-English language markers such as `SWEDEN`, `NORWAY`, `DENMARK`, `FINLAND`, `DEUTSCH`, `FRENCH`, `ITALIAN`, and `SPANISH`.
+
+For VOD, the app injects a virtual `|EN| All VOD` category when matching EN categories exist. Selecting it fetches every matching EN VOD category sequentially through the same DB-backed proxy path and deduplicates streams by `stream_id`.
 
 ## Repository Structure
 
