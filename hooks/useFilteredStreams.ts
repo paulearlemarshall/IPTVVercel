@@ -59,9 +59,22 @@ export function useFilteredStreams(
       );
     }
 
-    // Sort newest year first; streams with no detectable year fall to the bottom
-    // while keeping their original relative order (Array.sort is stable).
-    return [...filtered].sort((a, b) => streamYear(b) - streamYear(a));
+    // Deterministic order: newest year first, then by name, then by id. Without
+    // the secondary keys, ties (and the large no-year bucket) would be broken by
+    // the source array order, which differs between a DB read and an upstream
+    // fetch — so a force-refresh would reshuffle identical content. A total
+    // ordering means the layout only changes when the content itself changes.
+    return [...filtered].sort((a, b) => {
+      const byYear = streamYear(b) - streamYear(a);
+      if (byYear !== 0) return byYear;
+      const nameA = String(a.name ?? a.title ?? "");
+      const nameB = String(b.name ?? b.title ?? "");
+      const byName = nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: "base" });
+      if (byName !== 0) return byName;
+      const idA = String(a.stream_id ?? a.series_id ?? a.id ?? "");
+      const idB = String(b.stream_id ?? b.series_id ?? b.id ?? "");
+      return idA.localeCompare(idB);
+    });
   }, [streams, searchQuery, englishOnly, yearFilter]);
 
   return result;
