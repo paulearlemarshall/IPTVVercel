@@ -12,8 +12,10 @@ import StatsModal from "@/components/StatsModal";
 import StreamTooltip from "@/components/StreamTooltip";
 import ThemeToggle from "@/components/ThemeToggle";
 import TileImage from "@/components/TileImage";
+import { Menu } from "lucide-react";
 import { useFilteredStreams } from "@/hooks/useFilteredStreams";
 import { useGroupedCategories } from "@/hooks/useGroupedCategories";
+import { useHasHover } from "@/hooks/useHasHover";
 import { useXCApi } from "@/hooks/useXCApi";
 
 const VideoPlayer = dynamic(
@@ -83,8 +85,10 @@ export default function HomePage() {
   const [hoverLoading, setHoverLoading] = useState(false);
   const [player, setPlayer] = useState<PlayerState | null>(null);
   const [seriesDetail, setSeriesDetail] = useState<SeriesState | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const leaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const hasHover = useHasHover();
 
   const {
     allCategories,
@@ -122,6 +126,7 @@ export default function HomePage() {
     (catId: string) => {
       if (!activeProfile) return;
       setSelectedCategory(catId);
+      setSidebarOpen(false); // close the drawer on mobile after picking a category
       fetchStreams(selectedSection, catId, activeProfile.id);
     },
     [activeProfile, selectedSection, fetchStreams],
@@ -192,6 +197,7 @@ export default function HomePage() {
 
   const handleMouseEnter = useCallback(
     (stream: Record<string, unknown>, e: React.MouseEvent) => {
+      if (!hasHover) return; // no hover tooltips on touch devices
       cancelClear();
 
       if (hover) {
@@ -200,7 +206,7 @@ export default function HomePage() {
         hoverTimer.current = setTimeout(() => doFetchHover(stream, e), 400);
       }
     },
-    [hover, doFetchHover, cancelClear],
+    [hasHover, hover, doFetchHover, cancelClear],
   );
 
   const handleMouseLeave = useCallback(() => {
@@ -276,7 +282,17 @@ export default function HomePage() {
 
   return (
     <main className="flex h-screen flex-col">
-      <header className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
+      <header className="flex flex-wrap items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
+        {activeProfile && (
+          <button
+            onClick={() => setSidebarOpen((v) => !v)}
+            className="rounded p-1.5 text-gray-600 hover:bg-gray-100 md:hidden dark:text-gray-300 dark:hover:bg-gray-800"
+            title="Menu"
+            aria-label="Toggle category menu"
+          >
+            <Menu size={18} />
+          </button>
+        )}
         <h1 className="text-lg font-semibold">IPTV Player</h1>
         {activeProfile && (
           <>
@@ -323,17 +339,28 @@ export default function HomePage() {
           <ThemeToggle />
         </div>
       </header>
-      <div className="flex flex-1 overflow-hidden">
+      <div className="relative flex flex-1 overflow-hidden">
         {activeProfile && (
-          <Sidebar
-            sections={SECTIONS}
-            selectedSection={selectedSection}
-            onSectionChange={handleSectionChange}
-            groupedCategories={groupedCategories}
-            selectedCategory={selectedCategory}
-            onCategoryClick={handleCategoryClick}
-            onCategoryDoubleClick={handleCategoryDoubleClick}
-          />
+          <>
+            {sidebarOpen && (
+              <div
+                className="fixed inset-0 z-30 bg-black/40 md:hidden"
+                onClick={() => setSidebarOpen(false)}
+                aria-hidden
+              />
+            )}
+            <Sidebar
+              sections={SECTIONS}
+              selectedSection={selectedSection}
+              onSectionChange={handleSectionChange}
+              groupedCategories={groupedCategories}
+              selectedCategory={selectedCategory}
+              onCategoryClick={handleCategoryClick}
+              onCategoryDoubleClick={handleCategoryDoubleClick}
+              open={sidebarOpen}
+              onClose={() => setSidebarOpen(false)}
+            />
+          </>
         )}
         <div className="flex-1 overflow-y-auto p-4">
           {isLoading && (
@@ -361,12 +388,16 @@ export default function HomePage() {
                   >
                     <div
                       className="flex items-center justify-center overflow-hidden rounded bg-gray-100 dark:bg-gray-700"
-                      style={{ height: "260px" }}
+                      style={{ aspectRatio: selectedSection === "live" ? "16 / 9" : "2 / 3" }}
                     >
                       {artwork ? (
                         <TileImage
                           src={artwork}
-                          className="max-h-full max-w-full object-contain"
+                          className={
+                            selectedSection === "live"
+                              ? "max-h-full max-w-full object-contain"
+                              : "h-full w-full object-cover"
+                          }
                         />
                       ) : null}
                     </div>

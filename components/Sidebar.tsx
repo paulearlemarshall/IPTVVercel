@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, ChevronDown } from "lucide-react";
+import { ChevronRight, ChevronDown, X } from "lucide-react";
 import { useState } from "react";
 
 interface Category {
@@ -17,6 +17,8 @@ interface SidebarProps {
   selectedCategory: string | null;
   onCategoryClick: (catId: string) => void;
   onCategoryDoubleClick?: (catId: string) => void;
+  open?: boolean;
+  onClose?: () => void;
 }
 
 const SECTION_LABELS: Record<string, string> = {
@@ -33,6 +35,8 @@ export default function Sidebar({
   selectedCategory,
   onCategoryClick,
   onCategoryDoubleClick,
+  open = false,
+  onClose,
 }: SidebarProps) {
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
@@ -41,7 +45,21 @@ export default function Sidebar({
   };
 
   return (
-    <aside className="flex w-64 flex-col border-r border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-900">
+    <aside
+      className={`fixed inset-y-0 left-0 z-40 flex w-64 transform flex-col border-r border-gray-200 bg-gray-50 transition-transform duration-200 md:static md:z-auto md:translate-x-0 dark:border-gray-800 dark:bg-gray-900 ${
+        open ? "translate-x-0 shadow-xl" : "-translate-x-full md:shadow-none"
+      }`}
+    >
+      <div className="flex items-center justify-between border-b border-gray-200 px-3 py-2 md:hidden dark:border-gray-800">
+        <span className="text-sm font-semibold">Categories</span>
+        <button
+          onClick={onClose}
+          className="rounded p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+          title="Close menu"
+        >
+          <X size={18} />
+        </button>
+      </div>
       <div className="flex border-b border-gray-200 dark:border-gray-800">
         {sections.map((s) => (
           <button
