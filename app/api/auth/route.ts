@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { profiles } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 import { buildApiUrl } from "@/lib/xc";
+import { resolveCredentials } from "@/lib/credentials";
 
 export async function POST(request: Request) {
   try {
@@ -22,12 +23,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No server configured for profile" }, { status: 400 });
     }
 
-    const authUrl = buildApiUrl(
-      serverUrl,
-      "user_info",
-      profile.username,
-      profile.password,
-    );
+    const { username, password } = resolveCredentials(profile);
+    const authUrl = buildApiUrl(serverUrl, "user_info", username, password);
 
     const res = await fetch(authUrl, { signal: AbortSignal.timeout(10_000) });
     const data = await res.json();

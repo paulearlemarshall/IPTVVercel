@@ -32,7 +32,12 @@ export function addDbLog(entry: Omit<DbLogEntry, "id" | "at">) {
     entries.length = MAX_ENTRIES;
   }
 
-  void persistDbLog(entry);
+  // Persist writes and failures only. Routine successful reads (one per
+  // hover/click) are the dominant source of DB write-amplification and
+  // unbounded log growth; they stay in the in-memory ring buffer instead.
+  if (entry.operation !== "retrieve" || entry.status === "failure") {
+    void persistDbLog(entry);
+  }
 }
 
 export function getDbLog() {

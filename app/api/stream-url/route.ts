@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { profiles } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 import { getXcUrl, normalizeContainerExtension } from "@/lib/xc";
+import { resolveCredentials } from "@/lib/credentials";
 
 export async function POST(request: Request) {
   try {
@@ -21,13 +22,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No server configured" }, { status: 400 });
     }
 
-    const url = getXcUrl(
-      stream,
-      section,
-      serverUrl,
-      profile.username,
-      profile.password,
-    );
+    const { username, password } = resolveCredentials(profile);
+    const url = getXcUrl(stream, section, serverUrl, username, password);
 
     if (!url) {
       return NextResponse.json({ error: "Could not construct stream URL" }, { status: 400 });

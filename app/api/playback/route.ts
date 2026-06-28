@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { profiles } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 import { getXcUrl, normalizeContainerExtension } from "@/lib/xc";
+import { resolveCredentials } from "@/lib/credentials";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,12 +48,13 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "No server configured" }, { status: 400 });
     }
 
+    const { username, password } = resolveCredentials(profile);
     const upstreamUrl = getXcUrl(
       { stream_id: streamId, container_extension: ext },
       section,
       serverUrl,
-      profile.username,
-      profile.password,
+      username,
+      password,
     );
 
     if (!upstreamUrl) {

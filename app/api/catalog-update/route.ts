@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { buildApiUrl } from "@/lib/xc";
 import { writeCachedXcData } from "@/lib/xc-db-cache";
 import { recordCacheMetric } from "@/lib/metrics";
+import { resolveCredentials } from "@/lib/credentials";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,7 +40,7 @@ async function fetchXc<T>(
   const res = await fetch(buildApiUrl(serverUrl, action, username, password, params), {
     signal: AbortSignal.timeout(30_000),
   });
-  await recordCacheMetric("upstream");
+  void recordCacheMetric("upstream"); // best-effort, off the critical path
   if (!res.ok) throw new Error(`${action || "account"} returned ${res.status}`);
   return res.json() as Promise<T>;
 }
@@ -105,6 +106,8 @@ export async function POST(request: Request) {
             return;
           }
 
+          const { username, password } = resolveCredentials(profile);
+
           const summary: Record<string, { categories: number; streams: number; failures: number }> = {};
 
           for (const current of sections) {
@@ -113,8 +116,8 @@ export async function POST(request: Request) {
             const categories = await fetchXc<Record<string, unknown>[]>(
               serverUrl,
               actions.categories,
-              profile.username,
-              profile.password,
+              username,
+              password,
             );
             const allCategoryRows = Array.isArray(categories) ? categories : [];
             const categoryRows = englishOnly
@@ -153,8 +156,8 @@ export async function POST(request: Request) {
                 const streams = await fetchXc<Record<string, unknown>[]>(
                   serverUrl,
                   actions.streams,
-                  profile.username,
-                  profile.password,
+                  username,
+                  password,
                   { category_id: categoryId },
                 );
                 const allStreamRows = Array.isArray(streams) ? streams : [];

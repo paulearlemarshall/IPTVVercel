@@ -17,12 +17,15 @@ async function ensureDefaultProfile() {
   const password = process.env.XC_PASSWORD;
 
   if (username && password && servers.length > 0) {
+    // Credentials live as Vercel env secrets and are resolved per-request
+    // (see lib/credentials). Don't persist the plaintext password into the DB;
+    // store placeholders so the row exists without holding the secret.
     await db.insert(profiles).values({
       id: "default",
       name: "Default",
       servers,
-      username,
-      password,
+      username: "",
+      password: "",
     });
   }
 }
