@@ -39,7 +39,18 @@ function shapeResponse(action: string, data: unknown): unknown {
   return data;
 }
 
+function timedJson(data: unknown, source: "db" | "upstream", startedAt: number, action: string) {
+  const durationMs = Math.round(performance.now() - startedAt);
+  if (process.env.NODE_ENV !== "production" || process.env.XC_DEBUG) {
+    console.log(`[xc-proxy] ${action} source=${source} duration=${durationMs}ms`);
+  }
+  return NextResponse.json(data, {
+    headers: { "x-cache-source": source, "x-duration-ms": String(durationMs) },
+  });
+}
+
 export async function POST(request: Request) {
+  const startedAt = performance.now();
   try {
     const { profileId, action, params, forceRefresh } = await request.json();
     const [profile] = await db
@@ -62,7 +73,7 @@ export async function POST(request: Request) {
       const cached = await readCachedXcData({ profileId, serverUrl, action, params });
       if (cached) {
         void recordCacheMetric("db_hit");
-        return NextResponse.json(shapeResponse(action, cached));
+        return timedJson(shapeResponse(action, cached), "db", startedAt, action);
       }
     }
 
@@ -81,7 +92,7 @@ export async function POST(request: Request) {
     if (isDbCacheableAction(action)) {
       await writeCachedXcData({ profileId, serverUrl, action, params }, data);
     }
-    return NextResponse.json(shapeResponse(action, data));
+    return timedJson(shapeResponse(action, data), "upstream", startedAt, action);
   } catch {
     return NextResponse.json({ error: "XC API request failed" }, { status: 500 });
   }

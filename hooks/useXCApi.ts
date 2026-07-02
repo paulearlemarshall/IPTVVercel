@@ -9,6 +9,7 @@ interface Category {
 }
 
 const ALL_EN_VOD_CATEGORY_ID = "__all_en_vod__";
+const METADATA_CACHE_MAX_ENTRIES = 200;
 const EN_CATEGORY_PREFIXES = [
   "EN", "UK", "US", "GB", "CA", "MULTI", "NETFLIX", "APPLE+", "DISNEY+",
   "4K", "18", "24/7", "CHRISTMAS", "FORMULA", "FOR", "WORLDCUP", "BEIN",
@@ -47,6 +48,34 @@ function withSyntheticAllEnVod(categories: Category[]) {
 
 function getStreamKey(stream: Record<string, unknown>, index: number) {
   return String(stream.stream_id ?? stream.id ?? `${stream.name ?? stream.title ?? "stream"}-${index}`);
+}
+
+function readCachedMetadata(
+  cache: Map<string, Record<string, unknown>>,
+  key: string,
+) {
+  const value = cache.get(key);
+  if (!value) return undefined;
+
+  // Refresh insertion order so the first entry remains the least recently used.
+  cache.delete(key);
+  cache.set(key, value);
+  return value;
+}
+
+function cacheMetadata(
+  cache: Map<string, Record<string, unknown>>,
+  key: string,
+  value: Record<string, unknown>,
+) {
+  cache.delete(key);
+  cache.set(key, value);
+
+  while (cache.size > METADATA_CACHE_MAX_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey === undefined) break;
+    cache.delete(oldestKey);
+  }
 }
 
 export function useXCApi() {
@@ -186,8 +215,8 @@ export function useXCApi() {
       const id = (stream.stream_id ?? stream.series_id ?? stream.id) as string | undefined;
       if (!id) return null;
 
-      const cacheKey = `${section}_${id}`;
-      const cached = metadataCache.current.get(cacheKey);
+      const cacheKey = `${profileId}_${section}_${id}`;
+      const cached = readCachedMetadata(metadataCache.current, cacheKey);
       if (cached) return cached;
 
       const action = section === "vod" ? "get_vod_info" : "get_series_info";
@@ -200,7 +229,7 @@ export function useXCApi() {
       if (!result.success) return null;
 
       const info = (result.data?.info ?? result.data) as Record<string, unknown> | undefined;
-      if (info) metadataCache.current.set(cacheKey, info);
+      if (info) cacheMetadata(metadataCache.current, cacheKey, info);
       return info ?? null;
     },
     [proxyRequest],
@@ -214,8 +243,8 @@ export function useXCApi() {
       const id = (stream.series_id ?? stream.id) as string | undefined;
       if (!id) return null;
 
-      const cacheKey = `series_details_${id}`;
-      const cached = metadataCache.current.get(cacheKey);
+      const cacheKey = `${profileId}_series_details_${id}`;
+      const cached = readCachedMetadata(metadataCache.current, cacheKey);
       if (cached) return cached;
 
       const result = await proxyRequest<Record<string, unknown>>(
@@ -225,7 +254,7 @@ export function useXCApi() {
       );
 
       if (!result.success) return null;
-      metadataCache.current.set(cacheKey, result.data);
+      cacheMetadata(metadataCache.current, cacheKey, result.data);
       return result.data;
     },
     [proxyRequest],

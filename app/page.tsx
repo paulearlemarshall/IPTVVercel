@@ -52,20 +52,13 @@ interface SeriesState {
 const SECTIONS = ["live", "vod", "series"];
 
 function getArtwork(stream: Record<string, unknown>, section?: string) {
-  // For series tiles, prefer poster images (stream_icon/cover) over the wide backdrop
-  if (section === "series") {
-    const poster =
-      (stream.stream_icon as string) ||
-      (stream.cover as string) ||
-      (stream.movie_image as string);
-    if (poster) return poster;
-  }
-  // VOD & live: prefer stream_icon/cover, backdrop as fallback
+  // Prefer poster images; the wide backdrop is a last resort, and for series
+  // tiles it is skipped entirely (portrait cards look wrong with backdrops).
   const poster =
     (stream.stream_icon as string) ||
     (stream.cover as string) ||
     (stream.movie_image as string);
-  if (poster) return poster;
+  if (poster || section === "series") return poster || "";
   const backdrop = stream.backdrop_path;
   if (Array.isArray(backdrop) && typeof backdrop[0] === "string") return backdrop[0];
   if (typeof backdrop === "string") return backdrop;

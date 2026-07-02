@@ -34,7 +34,9 @@ export default function ThemeToggle() {
 
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const handler = () => {
-      if (t === "system") applyTheme("system");
+      // Read the live preference: the user may have switched modes since mount.
+      const current = (localStorage.getItem("theme") as Theme | null) ?? "system";
+      if (current === "system") applyTheme("system");
     };
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);

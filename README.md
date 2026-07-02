@@ -37,9 +37,12 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the internal design (request flow, 
 npm ci                 # install (uses package-lock.json)
 cp .env.example .env.local
 # edit .env.local — see Environment below
-npm run db:push        # apply the Drizzle schema to DATABASE_URL
+npm run db:push        # apply schema to a disposable/local DATABASE_URL
 npm run dev            # http://localhost:3000
 ```
+
+`db:push` mutates the configured database. Do not run it against preview,
+staging, or production without explicit authorization and a recovery plan.
 
 Other commands:
 
@@ -72,12 +75,15 @@ Set the same variables in the Vercel dashboard for deployed environments. After 
 - The browser never sees provider credentials. All XC API calls go through `POST /api/xc-proxy`; stream URLs are built server-side by `POST /api/stream-url` (the resulting URL does embed credentials per the XC protocol, and is shown in the tooltip).
 - `xc-proxy` serves from the **Neon cache** when fresh, otherwise fetches upstream, writes the full payload to Neon (batched, replace-on-refresh), and returns a trimmed list payload.
 - Double-clicking a category (or the Update buttons) forces a refresh that bypasses the cache and re-persists.
+- Client metadata is cached per profile in a 200-entry least-recently-used cache for the current browser session.
 
 Full details in [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Playback
 
 The top bar shows the active engine. `Auto` prefers **Proxy Native** whenever a same-origin playback URL can be built (broadest success with hosts that block CORS/Range); otherwise it picks HLS.js for `.m3u8`, MPEG-TS for `.ts`/`output=ts`, native video for common file extensions, and ReactPlayer as a catch-all.
+
+For live MPEG-TS/FLV playback, latency chasing is enabled so playback can recover when it drifts behind the live edge.
 
 Browsers can't play the **MKV** container natively. The **MKV→MP4** engine downloads the file (via the same-origin proxy) and remuxes it client-side with ffmpeg.wasm (single-threaded core from CDN, so no COOP/COEP headers needed). It's best for smaller H.264 VOD; large or HEVC/4K files may exceed browser memory — use VLC for those. The libraries are lazy-loaded, so the main bundle is unaffected.
 
