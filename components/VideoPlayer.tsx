@@ -6,7 +6,7 @@ import Hls from "hls.js";
 import mpegts from "mpegts.js";
 import { AlertCircle, Bug, Copy, ExternalLink, Loader2, SkipForward, X } from "lucide-react";
 
-type PlayerTech = "auto" | "native" | "react-player" | "hls" | "mpegts" | "flv" | "proxy" | "transcode";
+type PlayerTech = "auto" | "native" | "react-player" | "hls" | "hls-proxy" | "mpegts" | "mpegts-proxy" | "flv" | "proxy" | "transcode";
 
 type TranscodeStatus = "idle" | "loading" | "running" | "done" | "error";
 
@@ -29,6 +29,8 @@ const FFMPEG_CORE_BASE = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd";
 interface VideoPlayerProps {
   url: string;
   proxyUrl?: string | null;
+  alternateUrl?: string | null;
+  alternateProxyUrl?: string | null;
   profileId?: string;
   section?: string;
   streamId?: string;
@@ -41,7 +43,9 @@ const TECH_LABELS: Record<PlayerTech, string> = {
   native: "Native",
   "react-player": "ReactPlayer",
   hls: "HLS.js",
+  "hls-proxy": "HLS.js (Proxy)",
   mpegts: "MPEG-TS",
+  "mpegts-proxy": "MPEG-TS (Proxy)",
   flv: "FLV",
   proxy: "Proxy Native",
   transcode: "MKV→MP4",
@@ -62,10 +66,12 @@ function getLadder(url: string, proxyUrl?: string | null, section?: string): Exc
   const lower = url.toLowerCase();
   const ext = getUrlExtension(url);
   const withProxy = <T extends Exclude<PlayerTech, "auto">[]>(ladder: T) =>
-    proxyUrl ? ladder : (ladder.filter((tech) => tech !== "proxy") as T);
+    proxyUrl
+      ? ladder
+      : (ladder.filter((tech) => tech !== "proxy" && tech !== "hls-proxy" && tech !== "mpegts-proxy") as T);
 
   if (lower.includes(".m3u8")) {
-    return withProxy(["hls", "react-player", "mpegts", "native", "proxy"]);
+    return withProxy(["hls", "hls-proxy", "react-player", "native", "proxy"]);
   }
   if (ext === "mkv" || ext === "avi") {
     // Chromium can often demux Matroska via its WebM parser — try direct
@@ -73,22 +79,25 @@ function getLadder(url: string, proxyUrl?: string | null, section?: string): Exc
     return withProxy(["proxy", "native", "transcode", "react-player"]);
   }
   if (ext === "flv") {
-    return withProxy(["flv", "mpegts", "proxy", "react-player"]);
+    return withProxy(["flv", "mpegts", "mpegts-proxy", "proxy", "react-player"]);
   }
   if (ext === "ts" || lower.includes("output=ts") || section === "live") {
-    return withProxy(["mpegts", "hls", "proxy", "native", "react-player"]);
+    return withProxy(["mpegts", "mpegts-proxy", "hls", "hls-proxy", "proxy", "native", "react-player"]);
   }
   if (/^(mp4|m4v|webm|ogg|mov)$/.test(ext)) {
     return withProxy(["proxy", "native", "react-player", "hls"]);
   }
   // Unknown shape: let ReactPlayer sniff it, then work through the rest.
-  return withProxy(["react-player", "hls", "mpegts", "proxy", "native"]);
+  return withProxy(["react-player", "hls", "hls-proxy", "mpegts", "mpegts-proxy", "proxy", "native"]);
 }
 
-export default function VideoPlayer({ url, proxyUrl, profileId, section, streamId, title, onClose }: VideoPlayerProps) {
+export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProxyUrl, profileId, section, streamId, title, onClose }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [selectedTech, setSelectedTech] = useState<PlayerTech>("auto");
-  const ladder = useMemo(() => getLadder(url, proxyUrl, section), [url, proxyUrl, section]);
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const sourceUrl = sourceIndex === 1 && alternateUrl ? alternateUrl : url;
+  const sourceProxyUrl = sourceIndex === 1 && alternateProxyUrl ? alternateProxyUrl : proxyUrl;
+  const ladder = useMemo(() => getLadder(sourceUrl, sourceProxyUrl, section), [sourceUrl, sourceProxyUrl, section]);
   const [autoIndex, setAutoIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState({ res: "", speed: "", fps: "" });
@@ -102,6 +111,8 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
     message: "",
     url: null,
   });
+  const attemptPlayable = useRef(false);
+  const hlsMediaRecoveryUsed = useRef(false);
   const reportedSuccess = useRef<Set<string>>(new Set());
 
   const isAuto = selectedTech === "auto";
@@ -110,13 +121,15 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
     return ladder[Math.min(autoIndex, ladder.length - 1)];
   }, [isAuto, selectedTech, ladder, autoIndex]);
 
-  const playbackUrl = resolvedTech === "proxy" && proxyUrl ? proxyUrl : url;
-  const sourceExtension = getUrlExtension(url);
+  const playbackUrl = (["proxy", "hls-proxy", "mpegts-proxy"] as PlayerTech[]).includes(resolvedTech) && sourceProxyUrl
+    ? sourceProxyUrl
+    : sourceUrl;
+  const sourceExtension = getUrlExtension(sourceUrl);
   const availableTechs = useMemo<PlayerTech[]>(
-    () => (proxyUrl
-      ? ["auto", "proxy", "native", "react-player", "hls", "mpegts", "flv", "transcode"]
+    () => (sourceProxyUrl
+      ? ["auto", "proxy", "native", "react-player", "hls", "hls-proxy", "mpegts", "mpegts-proxy", "flv", "transcode"]
       : ["auto", "native", "react-player", "hls", "mpegts", "flv", "transcode"]),
-    [proxyUrl],
+    [sourceProxyUrl],
   );
 
   useEffect(() => {
@@ -133,6 +146,8 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
     setError(null);
     setStats({ res: "", speed: "", fps: "" });
     setTranscode({ status: "idle", progress: 0, message: "", url: null });
+    attemptPlayable.current = false;
+    hlsMediaRecoveryUsed.current = false;
     attemptStartedAt.current = performance.now();
     setAttempts((prev) => [...prev, { tech: resolvedTech, status: "trying", ms: 0 }]);
     console.debug(`[player] attempt tech=${resolvedTech} url=${playbackUrl}`);
@@ -189,11 +204,18 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
       setAutoIndex((i) => i + 1);
       return;
     }
+    if (isAuto && sourceIndex === 0 && alternateUrl) {
+      setSourceIndex(1);
+      setAutoIndex(0);
+      setError(null);
+      return;
+    }
     setError(message);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [finishAttempt, resolvedTech, isAuto, autoIndex, ladder.length]);
+  }, [finishAttempt, resolvedTech, isAuto, autoIndex, ladder.length, sourceIndex, alternateUrl]);
 
   const markPlayable = (tech: Exclude<PlayerTech, "auto">) => {
+    attemptPlayable.current = true;
     finishAttempt("playing");
     if (reportedSuccess.current.has(tech)) return;
     reportedSuccess.current.add(tech);
@@ -237,7 +259,7 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
   };
 
   useEffect(() => {
-    if (resolvedTech !== "hls" || !videoRef.current) return;
+    if (resolvedTech !== "hls" && resolvedTech !== "hls-proxy" || !videoRef.current) return;
 
     const video = videoRef.current;
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
@@ -271,7 +293,8 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
       if (!data.fatal) return;
       // Recoverable fatal errors: try hls.js built-in recovery once before
       // failing over to the next engine.
-      if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+      if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !hlsMediaRecoveryUsed.current) {
+        hlsMediaRecoveryUsed.current = true;
         hls.recoverMediaError();
         return;
       }
@@ -289,7 +312,7 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
 
   // mpegts.js drives both raw transport streams and FLV (same demux pipeline).
   useEffect(() => {
-    if ((resolvedTech !== "mpegts" && resolvedTech !== "flv") || !videoRef.current) return;
+    if ((resolvedTech !== "mpegts" && resolvedTech !== "mpegts-proxy" && resolvedTech !== "flv") || !videoRef.current) return;
 
     const video = videoRef.current;
     const mpegtsLib = (mpegts as any).default || mpegts;
@@ -397,11 +420,11 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
         if (cancelled) return;
 
         setTranscode((prev) => ({ ...prev, status: "running", message: "Downloading stream…" }));
-        const source = proxyUrl || url;
+        const source = sourceProxyUrl || sourceUrl;
         await ff.writeFile("input.mkv", await fetchFile(source));
         if (cancelled) return;
 
-        setTranscode((prev) => ({ ...prev, message: "Converting to MP4…" }));
+        setTranscode((prev) => ({ ...prev, message: "Remuxing to MP4 (video is not re-encoded)…" }));
         await ff.exec([
           "-i", "input.mkv",
           "-c:v", "copy",
@@ -419,7 +442,7 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
         if (cancelled) return;
         setTranscode({ status: "error", progress: 0, message: "", url: null });
         failPlayback(
-          `In-browser conversion failed: ${(e as Error)?.message || "unknown error"}. Large or HEVC/4K files may exceed browser memory — try VLC instead.`,
+          `In-browser remux failed: ${(e as Error)?.message || "unknown error"}. HEVC video is not re-encoded; large or unsupported-codec files may require VLC.`,
         );
       }
     })();
@@ -433,7 +456,7 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
         /* ignore */
       }
     };
-  }, [resolvedTech, proxyUrl, url]);
+  }, [resolvedTech, sourceProxyUrl, sourceUrl]);
 
   // Attach the converted MP4 to the video element once ready.
   useEffect(() => {
@@ -448,6 +471,19 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
     };
   }, [resolvedTech, transcode.status, transcode.url]);
 
+  // A provider can leave a request hanging without emitting a media error.
+  // Give Auto mode a bounded chance to move to its next engine instead of
+  // leaving the player blank forever. Remuxing is intentionally excluded.
+  useEffect(() => {
+    if (resolvedTech === "transcode") return;
+    const timeout = window.setTimeout(() => {
+      if (!attemptPlayable.current) {
+        failPlayback(`${TECH_LABELS[resolvedTech]} did not start within 15 seconds.`);
+      }
+    }, 15_000);
+    return () => window.clearTimeout(timeout);
+  }, [resolvedTech, playbackUrl, failPlayback]);
+
   const videoError = () => {
     const mediaError = videoRef.current?.error;
     const msg = mediaError?.message || "The browser could not decode this stream.";
@@ -456,12 +492,12 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
 
   const playbackHint = (() => {
     if (sourceExtension === "mkv" || sourceExtension === "avi") {
-      return "Browsers cannot always demux this container. The MKV→MP4 engine converts it in your browser (best for smaller H.264 VOD); use VLC for large/HEVC files.";
+      return "Browsers cannot always demux this container. MKV→MP4 remuxes the container and audio in your browser, but does not convert HEVC video; use VLC or a server-side converter when needed.";
     }
-    if (resolvedTech === "hls") {
+    if (resolvedTech === "hls" || resolvedTech === "hls-proxy") {
       return "For HLS streams, failures are usually caused by playlist access, segment CORS, or unsupported codecs.";
     }
-    if (resolvedTech === "mpegts" || resolvedTech === "flv") {
+    if (resolvedTech === "mpegts" || resolvedTech === "mpegts-proxy" || resolvedTech === "flv") {
       return "Transport streams work best for live channels when the browser can decode the included audio and video codecs.";
     }
     return "Try Proxy Native for provider network restrictions, or switch engines when the stream format does not match the selected technology.";
@@ -630,6 +666,7 @@ export default function VideoPlayer({ url, proxyUrl, profileId, section, streamI
                 width="100%"
                 height="100%"
                 onReady={() => markPlayable("react-player")}
+                onPlaying={() => markPlayable("react-player")}
                 onError={(e: any) => {
                   const msg = e?.message || e?.type || "Unknown error";
                   failPlayback(`ReactPlayer failed: ${msg}`);

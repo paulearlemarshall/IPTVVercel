@@ -12,7 +12,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the internal design (request flow, 
 - **Year filter** dropdown (All Years + last 10 years) and an **EN** toggle, including a synthetic `|EN| All VOD` category that aggregates EN VOD buckets.
 - **Hover previews** of metadata and the stream URL (desktop only — suppressed on touch devices).
 - **Series window** with backdrop art, season groups, and 16:9 episode tiles; plays individual episodes.
-- **In-browser player** with a selectable engine: Auto, Native, ReactPlayer, HLS.js, MPEG-TS (`mpegts.js`), same-origin Proxy Native, and **MKV→MP4** in-browser conversion (ffmpeg.wasm). Plus `Try Next Engine`, VLC launch links, and M3U download.
+- **In-browser player** with a selectable engine: Auto, Native, ReactPlayer, HLS.js (direct or proxied), MPEG-TS (`mpegts.js`, direct or proxied), same-origin Proxy Native, and **MKV→MP4** in-browser remuxing (ffmpeg.wasm). Plus `Try Next Engine`, VLC launch links, and M3U download.
 - **Catalogue update jobs** (All / VOD / Live / Series) with streamed progress in the header.
 - **Mobile-friendly**: collapsible sidebar drawer, wrapping header, poster-aspect cards, viewport-batched image loading.
 - **Account modal**, **DB activity log**, and a **cache-stats meter** (DB hits vs. upstream calls). Light/dark themes.
@@ -83,9 +83,9 @@ Full details in [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 The top bar shows the active engine. `Auto` prefers **Proxy Native** whenever a same-origin playback URL can be built (broadest success with hosts that block CORS/Range); otherwise it picks HLS.js for `.m3u8`, MPEG-TS for `.ts`/`output=ts`, native video for common file extensions, and ReactPlayer as a catch-all.
 
-For live MPEG-TS/FLV playback, latency chasing is enabled so playback can recover when it drifts behind the live edge.
+For live MPEG-TS/FLV playback, latency chasing is enabled so playback can recover when it drifts behind the live edge. Auto mode also advances after a bounded startup timeout when a provider hangs without emitting a media error.
 
-Browsers can't play the **MKV** container natively. The **MKV→MP4** engine downloads the file (via the same-origin proxy) and remuxes it client-side with ffmpeg.wasm (single-threaded core from CDN, so no COOP/COEP headers needed). It's best for smaller H.264 VOD; large or HEVC/4K files may exceed browser memory — use VLC for those. The libraries are lazy-loaded, so the main bundle is unaffected.
+Browsers can't always play the **MKV** container natively. The **MKV→MP4** engine downloads the file (via the same-origin proxy) and remuxes it client-side with ffmpeg.wasm (single-threaded core from CDN, so no COOP/COEP headers needed). It copies the video stream and converts audio to AAC; it does not turn HEVC into H.264. It's best for smaller H.264 VOD; large or HEVC/4K files may exceed browser memory or remain unsupported — use VLC or a server-side converter for those. The libraries are lazy-loaded, so the main bundle is unaffected.
 
 ## Catalogue cache
 

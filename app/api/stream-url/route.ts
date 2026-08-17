@@ -40,7 +40,15 @@ export async function POST(request: Request) {
         }).toString()}`
       : null;
 
-    return NextResponse.json({ url, proxyUrl });
+    let alternateUrl: string | null = null;
+    let alternateProxyUrl: string | null = null;
+    if (section === "live" && streamId) {
+      const alternateExt = ext === "m3u8" ? "ts" : "m3u8";
+      alternateUrl = getXcUrl({ ...stream, container_extension: alternateExt }, section, serverUrl, username, password);
+      alternateProxyUrl = `/api/playback?${new URLSearchParams({ profileId, section, streamId, ext: alternateExt }).toString()}`;
+    }
+
+    return NextResponse.json({ url, proxyUrl, alternateUrl, alternateProxyUrl });
   } catch {
     return NextResponse.json({ error: "Failed to get stream URL" }, { status: 500 });
   }

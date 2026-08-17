@@ -39,6 +39,8 @@ interface HoverState {
 interface PlayerState {
   url: string;
   proxyUrl?: string | null;
+  alternateUrl?: string | null;
+  alternateProxyUrl?: string | null;
   streamId?: string;
   title: string;
 }
@@ -252,6 +254,8 @@ export default function HomePage() {
           setPlayer({
             url: data.url,
             proxyUrl: data.proxyUrl,
+            alternateUrl: data.alternateUrl,
+            alternateProxyUrl: data.alternateProxyUrl,
             streamId: String(stream.stream_id ?? stream.id ?? ""),
             title: (stream.name ?? stream.title ?? "Untitled") as string,
           });
@@ -420,6 +424,8 @@ export default function HomePage() {
         <VideoPlayer
           url={player.url}
           proxyUrl={player.proxyUrl}
+          alternateUrl={player.alternateUrl}
+          alternateProxyUrl={player.alternateProxyUrl}
           title={player.title}
           profileId={activeProfile?.id}
           section={selectedSection}
@@ -451,6 +457,8 @@ export default function HomePage() {
                 setPlayer({
                   url: data.url,
                   proxyUrl: data.proxyUrl,
+                  alternateUrl: data.alternateUrl,
+                  alternateProxyUrl: data.alternateProxyUrl,
                   streamId: String(episode.id ?? episode.stream_id ?? ""),
                   title: (episode.title ?? episode.name ?? "Episode") as string,
                 });

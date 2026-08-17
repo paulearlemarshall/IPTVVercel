@@ -48,7 +48,8 @@ export function getXcUrl(
   if (!id) return null;
 
   if (type === "live") {
-    return `${base}/${username}/${password}/${id}.ts`;
+    const ext = normalizeContainerExtension(stream.container_extension);
+    return `${base}/${username}/${password}/${id}.${ext === "m3u8" ? "m3u8" : "ts"}`;
   }
   if (type === "vod" || type === "episode") {
     const ext = normalizeContainerExtension(stream.container_extension);

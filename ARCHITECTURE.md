@@ -103,11 +103,12 @@ All `xc_*` cache tables carry `updated_at` (drives TTL) and cascade-delete with 
 
 ## Player engines (`components/VideoPlayer.tsx`)
 
-`auto | native | react-player | hls | mpegts | proxy | transcode`
+`auto | native | react-player | hls | hls-proxy | mpegts | mpegts-proxy | proxy | transcode`
 
 - **Auto** → `proxy` when a proxyUrl exists, else by extension (`.m3u8`→hls, `.ts`→mpegts, mp4/webm/…→native, else react-player).
 - **proxy** plays the same-origin `/api/playback` URL (Range passthrough) for CORS/Range-blocked hosts — the default.
-- **transcode (MKV→MP4)** lazy-loads ffmpeg.wasm (single-thread core from CDN, no COOP/COEP), downloads via the proxy, remuxes `-c:v copy -c:a aac -movflags +faststart`, plays the blob. Best-effort; large/HEVC files may exhaust memory.
+- **hls-proxy / mpegts-proxy** run the same demuxers against the same-origin byte proxy, which can work around provider CORS, referrer, and Range restrictions.
+- **transcode (MKV→MP4)** lazy-loads ffmpeg.wasm (single-thread core from CDN, no COOP/COEP), downloads via the proxy, remuxes `-c:v copy -c:a aac -movflags +faststart`, and plays the blob. This is remuxing, not HEVC→H.264 conversion; large or unsupported-codec files remain best-effort.
 - Success/failure per engine is posted to `/api/playback-result`. `Try Next Engine`, VLC scheme links, and M3U download are provided.
 
 ---
