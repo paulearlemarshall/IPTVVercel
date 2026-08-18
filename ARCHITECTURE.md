@@ -107,7 +107,7 @@ All `xc_*` cache tables carry `updated_at` (drives TTL) and cascade-delete with 
 
 - **Auto** → `proxy` when a proxyUrl exists, else by extension (`.m3u8`→hls, `.ts`→mpegts, mp4/webm/…→native, else react-player).
 - **proxy** plays the same-origin `/api/playback` URL (Range passthrough) for CORS/Range-blocked hosts — the default.
-- **hls-proxy / mpegts-proxy** run the same demuxers against the same-origin byte proxy, which can work around provider CORS, referrer, and Range restrictions.
+- **hls-proxy / mpegts-proxy** run the same demuxers against the same-origin byte proxy, which can work around provider CORS, referrer, and Range restrictions. HLS playlists are rewritten so same-origin segment/key URLs also return through the proxy; cross-origin CDN URLs are left direct rather than allowing an open proxy.
 - **transcode (MKV→MP4)** lazy-loads ffmpeg.wasm (single-thread core from CDN, no COOP/COEP), downloads via the proxy, remuxes `-c:v copy -c:a aac -movflags +faststart`, and plays the blob. This is remuxing, not HEVC→H.264 conversion; large or unsupported-codec files remain best-effort.
 - Success/failure per engine is posted to `/api/playback-result`. `Try Next Engine`, VLC scheme links, and M3U download are provided.
 

@@ -81,9 +81,9 @@ Full details in [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Playback
 
-The top bar shows the active engine. `Auto` prefers **Proxy Native** whenever a same-origin playback URL can be built (broadest success with hosts that block CORS/Range); otherwise it picks HLS.js for `.m3u8`, MPEG-TS for `.ts`/`output=ts`, native video for common file extensions, and ReactPlayer as a catch-all.
+The top bar shows the active engine and whether video is coming directly from the provider or through Vercel bandwidth. `Auto` prefers direct HLS/MPEG-TS when possible, then tries same-origin proxy variants for providers that block CORS/Range; native video is used for common file extensions and ReactPlayer is the catch-all.
 
-For live MPEG-TS/FLV playback, latency chasing is enabled so playback can recover when it drifts behind the live edge. Auto mode also advances after a bounded startup timeout when a provider hangs without emitting a media error.
+For live MPEG-TS/FLV playback, latency chasing is enabled so playback can recover when it drifts behind the live edge. The HLS proxy rewrites same-origin playlist segment and key URLs through `/api/playback` to mitigate provider CORS failures; cross-origin CDN resources remain direct for safety. Auto mode also advances after a bounded startup timeout when a provider hangs without emitting a media error.
 
 Browsers can't always play the **MKV** container natively. The **MKV→MP4** engine downloads the file (via the same-origin proxy) and remuxes it client-side with ffmpeg.wasm (single-threaded core from CDN, so no COOP/COEP headers needed). It copies the video stream and converts audio to AAC; it does not turn HEVC into H.264. It's best for smaller H.264 VOD; large or HEVC/4K files may exceed browser memory or remain unsupported — use VLC or a server-side converter for those. The libraries are lazy-loaded, so the main bundle is unaffected.
 

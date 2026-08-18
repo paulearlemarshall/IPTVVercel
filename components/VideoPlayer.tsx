@@ -43,12 +43,12 @@ const TECH_LABELS: Record<PlayerTech, string> = {
   native: "Native",
   "react-player": "ReactPlayer",
   hls: "HLS.js",
-  "hls-proxy": "HLS.js (Proxy)",
+  "hls-proxy": "HLS.js (Vercel BW)",
   mpegts: "MPEG-TS",
-  "mpegts-proxy": "MPEG-TS (Proxy)",
+  "mpegts-proxy": "MPEG-TS (Vercel BW)",
   flv: "FLV",
-  proxy: "Proxy Native",
-  transcode: "MKV→MP4",
+  proxy: "Native (Vercel BW)",
+  transcode: "MKV→MP4 (Vercel BW)",
 };
 
 function getUrlExtension(url: string) {
@@ -125,6 +125,8 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
     ? sourceProxyUrl
     : sourceUrl;
   const sourceExtension = getUrlExtension(sourceUrl);
+  const usesVercelBandwidth = Boolean(sourceProxyUrl) &&
+    (["proxy", "hls-proxy", "mpegts-proxy", "transcode"] as PlayerTech[]).includes(resolvedTech);
   const availableTechs = useMemo<PlayerTech[]>(
     () => (sourceProxyUrl
       ? ["auto", "proxy", "native", "react-player", "hls", "hls-proxy", "mpegts", "mpegts-proxy", "flv", "transcode"]
@@ -520,6 +522,9 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
             <div className="text-[11px] uppercase tracking-wide text-gray-400">
               In use: {TECH_LABELS[resolvedTech]}
               {isAuto && ladder.length > 1 && ` (auto ${autoIndex + 1}/${ladder.length})`}
+              <span className={usesVercelBandwidth ? "ml-2 text-amber-300" : "ml-2 text-emerald-300"}>
+                {usesVercelBandwidth ? "· video via Vercel" : "· video direct from provider"}
+              </span>
             </div>
           </div>
 
