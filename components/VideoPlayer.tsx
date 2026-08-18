@@ -24,6 +24,13 @@ interface AttemptEntry {
   message?: string;
 }
 
+interface DiagnosticEntry {
+  at: string;
+  stage: string;
+  status: "info" | "ok" | "error";
+  detail: string;
+}
+
 const FFMPEG_CORE_BASE = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd";
 
 interface VideoPlayerProps {
@@ -55,6 +62,16 @@ function getUrlExtension(url: string) {
   const path = url.split("?")[0] ?? "";
   const match = path.match(/\.([a-z0-9]{1,8})$/i);
   return match?.[1]?.toLowerCase() ?? "";
+}
+
+function redactedUrl(value: string) {
+  try {
+    const parsed = new URL(value, typeof window === "undefined" ? "https://invalid.local" : window.location.origin);
+    const finalPathPart = parsed.pathname.split("/").filter(Boolean).at(-1) || "stream";
+    return `${parsed.protocol}//${parsed.host}/…/${finalPathPart}`;
+  } catch {
+    return value.split("?")[0] || "unknown source";
+  }
 }
 
 // Ordered engine ladders per source shape. In Auto mode a playback failure
@@ -104,6 +121,8 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
   const [copied, setCopied] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [attempts, setAttempts] = useState<AttemptEntry[]>([]);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticEntry[]>([]);
+  const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
   const attemptStartedAt = useRef(0);
   const [transcode, setTranscode] = useState<TranscodeState>({
     status: "idle",
@@ -114,6 +133,13 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
   const attemptPlayable = useRef(false);
   const hlsMediaRecoveryUsed = useRef(false);
   const reportedSuccess = useRef<Set<string>>(new Set());
+
+  const addDiagnostic = useCallback((stage: string, status: DiagnosticEntry["status"], detail: string) => {
+    setDiagnostics((previous) => [
+      ...previous,
+      { at: new Date().toISOString(), stage, status, detail },
+    ].slice(-100));
+  }, []);
 
   const isAuto = selectedTech === "auto";
   const resolvedTech = useMemo<Exclude<PlayerTech, "auto">>(() => {
@@ -152,8 +178,9 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
     hlsMediaRecoveryUsed.current = false;
     attemptStartedAt.current = performance.now();
     setAttempts((prev) => [...prev, { tech: resolvedTech, status: "trying", ms: 0 }]);
-    console.debug(`[player] attempt tech=${resolvedTech} url=${playbackUrl}`);
-  }, [resolvedTech, playbackUrl]);
+    addDiagnostic("engine", "info", `Trying ${TECH_LABELS[resolvedTech]} (${usesVercelBandwidth ? "Vercel proxy" : "direct provider"})`);
+    console.debug(`[player] attempt tech=${resolvedTech} source=${usesVercelBandwidth ? "proxy" : "direct"}`);
+  }, [resolvedTech, playbackUrl, addDiagnostic, usesVercelBandwidth]);
 
   const elapsed = () => Math.round(performance.now() - attemptStartedAt.current);
 
@@ -169,8 +196,9 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
       }
       return next;
     });
+    if (message) addDiagnostic("engine", status === "failed" ? "error" : "info", `${TECH_LABELS[resolvedTech]}: ${message}`);
     console.debug(`[player] ${status} tech=${resolvedTech} after ${ms}ms${message ? ` — ${message}` : ""}`);
-  }, [resolvedTech]);
+  }, [resolvedTech, addDiagnostic]);
 
   const copyUrl = async () => {
     try {
@@ -184,6 +212,110 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
       /* ignore */
     }
   };
+
+  const runDiagnostics = useCallback(async () => {
+    const video = document.createElement("video");
+    const mpegtsLib = (mpegts as any).default || mpegts;
+    addDiagnostic("environment", "info", `Browser: ${navigator.userAgent}`);
+    addDiagnostic("capability", "info", [
+      `native HLS=${video.canPlayType("application/vnd.apple.mpegurl") || "no"}`,
+      `MSE=${typeof MediaSource !== "undefined" ? "yes" : "no"}`,
+      `HLS.js=${Hls.isSupported() ? "yes" : "no"}`,
+      `MPEG-TS.js=${mpegtsLib?.isSupported?.() ? "yes" : "no"}`,
+    ].join(" | "));
+
+    if (navigator.mediaCapabilities?.decodingInfo) {
+      for (const contentType of [
+        'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
+        'video/mp4; codecs="hvc1.1.6.L93.B0, mp4a.40.2"',
+      ]) {
+        try {
+          const result = await navigator.mediaCapabilities.decodingInfo({
+            type: "file",
+            video: { contentType, width: 1920, height: 1080, bitrate: 5_000_000, framerate: 30 },
+          });
+          addDiagnostic("codec", result.supported ? "ok" : "error", `${contentType}: supported=${result.supported}, smooth=${result.smooth}, powerEfficient=${result.powerEfficient}`);
+        } catch (error) {
+          addDiagnostic("codec", "error", `${contentType}: ${error instanceof Error ? error.message : "probe failed"}`);
+        }
+      }
+    } else {
+      addDiagnostic("codec", "info", "MediaCapabilities API unavailable");
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 6000);
+    try {
+      let response = await fetch(sourceUrl, {
+        method: "HEAD",
+        cache: "no-store",
+        mode: "cors",
+        signal: controller.signal,
+      });
+      if (response.status === 405 || response.status === 501) {
+        response = await fetch(sourceUrl, {
+          method: "GET",
+          headers: { range: "bytes=0-1" },
+          cache: "no-store",
+          mode: "cors",
+          signal: controller.signal,
+        });
+        await response.body?.cancel();
+      }
+      addDiagnostic(
+        "direct-http",
+        response.ok ? "ok" : "error",
+        `${response.status} ${response.statusText || ""} type=${response.headers.get("content-type") || "unknown"} range=${response.headers.get("accept-ranges") || "unknown"} source=${redactedUrl(sourceUrl)}`,
+      );
+    } catch (error) {
+      const detail = error instanceof DOMException && error.name === "AbortError"
+        ? "Timed out after 6 seconds"
+        : "Fetch failed (often CORS, network, TLS, or provider User-Agent/referrer blocking)";
+      addDiagnostic("direct-http", "error", `${detail}; source=${redactedUrl(sourceUrl)}`);
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }, [addDiagnostic, sourceUrl]);
+
+  const copyDiagnostics = async () => {
+    const report = {
+      title,
+      section,
+      streamId,
+      engine: TECH_LABELS[resolvedTech],
+      transport: usesVercelBandwidth ? "vercel-proxy" : "direct-provider",
+      source: redactedUrl(sourceUrl),
+      proxySource: sourceProxyUrl ? redactedUrl(sourceProxyUrl) : null,
+      attempts,
+      diagnostics,
+      capturedAt: new Date().toISOString(),
+    };
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
+      setDiagnosticsCopied(true);
+      window.setTimeout(() => setDiagnosticsCopied(false), 2000);
+    } catch {
+      addDiagnostic("report", "error", "Clipboard access was denied");
+    }
+  };
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const events = ["loadstart", "loadedmetadata", "durationchange", "canplay", "playing", "waiting", "stalled", "suspend", "abort", "emptied", "error"];
+    const handlers = events.map((eventName) => {
+      const handler = () => {
+        const mediaError = video.error;
+        const detail = eventName === "error" && mediaError
+          ? `${mediaError.code}: ${mediaError.message || "media error"}`
+          : `readyState=${video.readyState}, networkState=${video.networkState}`;
+        addDiagnostic("video", eventName === "error" ? "error" : eventName === "playing" || eventName === "canplay" ? "ok" : "info", `${eventName}: ${detail}`);
+      };
+      video.addEventListener(eventName, handler);
+      return [eventName, handler] as const;
+    });
+    return () => handlers.forEach(([eventName, handler]) => video.removeEventListener(eventName, handler));
+  }, [resolvedTech, playbackUrl, addDiagnostic]);
 
   const recordPlayback = async (tech: PlayerTech, status: "success" | "failure", message?: string) => {
     if (!profileId || !section || !streamId) return;
@@ -266,7 +398,9 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
     const video = videoRef.current;
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = playbackUrl;
-      video.play().catch(() => {});
+      video.play().catch((error) => {
+        addDiagnostic("play", "error", `Native HLS play() rejected: ${error instanceof Error ? error.message : "unknown error"}`);
+      });
       return () => {
         video.removeAttribute("src");
         video.load();
@@ -292,6 +426,7 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
     hls.loadSource(playbackUrl);
     hls.attachMedia(video);
     hls.on(Hls.Events.ERROR, (_event, data) => {
+      addDiagnostic("hls", data.fatal ? "error" : "info", `${data.type}/${data.details || "unknown"}${data.response?.code ? ` http=${data.response.code}` : ""}${data.url ? ` source=${redactedUrl(data.url)}` : ""}`);
       if (!data.fatal) return;
       // Recoverable fatal errors: try hls.js built-in recovery once before
       // failing over to the next engine.
@@ -303,14 +438,16 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
       failPlayback(`HLS failed: ${data.details || data.type}`);
     });
 
-    video.play().catch(() => {});
+    video.play().catch((error) => {
+      addDiagnostic("play", "error", `HLS play() rejected: ${error instanceof Error ? error.message : "unknown error"}`);
+    });
 
     return () => {
       hls.destroy();
       video.removeAttribute("src");
       video.load();
     };
-  }, [resolvedTech, playbackUrl]);
+  }, [resolvedTech, playbackUrl, addDiagnostic]);
 
   // mpegts.js drives both raw transport streams and FLV (same demux pipeline).
   useEffect(() => {
@@ -339,10 +476,13 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
     inst.attachMediaElement(video);
     inst.load();
     inst.on("error", (_typ: unknown, details: string) => {
+      addDiagnostic("mpegts", "error", `${resolvedTech}: ${details || "unknown error"}`);
       failPlayback(`${resolvedTech === "flv" ? "FLV" : "MPEG-TS"} failed: ${details || "unknown error"}`);
     });
 
-    video.play().catch(() => {});
+    video.play().catch((error) => {
+      addDiagnostic("play", "error", `MPEG-TS play() rejected: ${error instanceof Error ? error.message : "unknown error"}`);
+    });
 
     const ival = setInterval(() => {
       const info = (inst as any).statisticsInfo;
@@ -362,7 +502,7 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
       inst.detachMediaElement();
       inst.destroy();
     };
-  }, [resolvedTech, playbackUrl, section]);
+  }, [resolvedTech, playbackUrl, section, addDiagnostic]);
 
   useEffect(() => {
     if (resolvedTech !== "native" && resolvedTech !== "proxy") return;
@@ -370,7 +510,9 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
     if (!video) return;
 
     video.src = playbackUrl;
-    video.play().catch(() => {});
+    video.play().catch((error) => {
+      addDiagnostic("play", "error", `Native play() rejected: ${error instanceof Error ? error.message : "unknown error"}`);
+    });
 
     const ival = setInterval(() => {
       const res = video.videoWidth && video.videoHeight
@@ -383,7 +525,7 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
       video.removeAttribute("src");
       video.load();
     };
-  }, [resolvedTech, playbackUrl]);
+  }, [resolvedTech, playbackUrl, addDiagnostic]);
 
   // In-browser MKV/AVI → MP4 conversion via ffmpeg.wasm. Browsers can usually
   // decode the codecs inside an MKV (H.264/AAC) but not the Matroska container,
@@ -466,12 +608,14 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
     const video = videoRef.current;
     if (!video || transcode.status !== "done" || !transcode.url) return;
     video.src = transcode.url;
-    video.play().catch(() => {});
+    video.play().catch((error) => {
+      addDiagnostic("play", "error", `Converted MP4 play() rejected: ${error instanceof Error ? error.message : "unknown error"}`);
+    });
     return () => {
       video.removeAttribute("src");
       video.load();
     };
-  }, [resolvedTech, transcode.status, transcode.url]);
+  }, [resolvedTech, transcode.status, transcode.url, addDiagnostic]);
 
   // A provider can leave a request hanging without emitting a media error.
   // Give Auto mode a bounded chance to move to its next engine instead of
@@ -590,7 +734,14 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
 
         <div className="relative flex flex-1 items-center justify-center bg-black">
           {showDebug && (
-            <div className="absolute left-4 top-4 z-30 max-h-64 w-80 overflow-y-auto rounded border border-white/15 bg-black/85 p-3 font-mono text-[11px] text-gray-300">
+            <div className="absolute left-4 top-4 z-30 max-h-[70vh] w-[min(36rem,calc(100vw-2rem))] overflow-y-auto rounded border border-white/15 bg-black/90 p-3 font-mono text-[11px] text-gray-300">
+              <div className="mb-2 flex items-center justify-between gap-2 font-bold text-white">
+                <span>Playback diagnostics</span>
+                <span className="flex gap-1 font-sans font-normal">
+                  <button type="button" onClick={runDiagnostics} className="rounded bg-white/10 px-2 py-1 hover:bg-white/20">Run direct probe</button>
+                  <button type="button" onClick={copyDiagnostics} className="rounded bg-white/10 px-2 py-1 hover:bg-white/20">{diagnosticsCopied ? "Copied" : "Copy report"}</button>
+                </span>
+              </div>
               <div className="mb-1 font-bold text-white">Engine attempts</div>
               {attempts.map((a, i) => (
                 <div key={i} className="flex justify-between gap-2">
@@ -616,6 +767,15 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
                   ))}
                 </div>
               )}
+              <div className="mt-2 border-t border-white/10 pt-1">
+                <div className="mb-1 font-bold text-white">Events and probes</div>
+                {diagnostics.length === 0 && <div className="text-gray-500">Run the direct probe or start playback to collect diagnostics.</div>}
+                {diagnostics.map((entry, index) => (
+                  <div key={`${entry.at}-${index}`} className={entry.status === "error" ? "text-red-300" : entry.status === "ok" ? "text-green-300" : "text-gray-300"}>
+                    [{entry.stage}] {entry.detail}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -639,6 +799,13 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
               >
                 <SkipForward size={14} />
                 Try Next Engine
+              </button>
+              <button
+                onClick={() => setShowDebug(true)}
+                className="flex items-center gap-2 rounded bg-white/10 px-4 py-2 text-sm transition-colors hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white"
+              >
+                <Bug size={14} />
+                Open diagnostics
               </button>
             </div>
           )}
@@ -670,10 +837,17 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
                 playing
                 width="100%"
                 height="100%"
-                onReady={() => markPlayable("react-player")}
-                onPlaying={() => markPlayable("react-player")}
+                onReady={() => {
+                  addDiagnostic("react-player", "ok", "Player reported ready");
+                  markPlayable("react-player");
+                }}
+                onPlaying={() => {
+                  addDiagnostic("react-player", "ok", "Player reported playing");
+                  markPlayable("react-player");
+                }}
                 onError={(e: any) => {
                   const msg = e?.message || e?.type || "Unknown error";
+                  addDiagnostic("react-player", "error", msg);
                   failPlayback(`ReactPlayer failed: ${msg}`);
                 }}
                 style={{ position: "absolute", top: 0, left: 0 }}

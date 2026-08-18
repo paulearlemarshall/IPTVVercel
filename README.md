@@ -12,7 +12,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the internal design (request flow, 
 - **Year filter** dropdown (All Years + last 10 years) and an **EN** toggle, including a synthetic `|EN| All VOD` category that aggregates EN VOD buckets.
 - **Hover previews** of metadata and the stream URL (desktop only — suppressed on touch devices).
 - **Series window** with backdrop art, season groups, and 16:9 episode tiles; plays individual episodes.
-- **In-browser player** with a selectable engine: Auto, Native, ReactPlayer, HLS.js (direct or proxied), MPEG-TS (`mpegts.js`, direct or proxied), same-origin Proxy Native, and **MKV→MP4** in-browser remuxing (ffmpeg.wasm). Plus `Try Next Engine`, VLC launch links, and M3U download.
+- **In-browser player** with a selectable engine: Auto, Native, ReactPlayer, HLS.js (direct or proxied), MPEG-TS (`mpegts.js`, direct or proxied), same-origin Proxy Native, and **MKV→MP4** in-browser remuxing (ffmpeg.wasm). Plus `Try Next Engine`, production playback diagnostics, VLC launch links, and M3U download.
 - **Catalogue update jobs** (All / VOD / Live / Series) with streamed progress in the header.
 - **Mobile-friendly**: collapsible sidebar drawer, wrapping header, poster-aspect cards, viewport-batched image loading.
 - **Account modal**, **DB activity log**, and a **cache-stats meter** (DB hits vs. upstream calls). Light/dark themes.
