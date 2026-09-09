@@ -81,6 +81,8 @@ Full details in [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Playback
 
+The playback window uses a compact two-row header: title/helper status/close, then a **Playback** selector containing every existing engine alongside AI help, VLC, M3U and diagnostics. Video fills the remaining viewport without stretching its aspect ratio. Local playback notes expand on demand to preserve viewing space.
+
 The top bar shows the active engine and whether video is coming directly from the provider or through Vercel bandwidth. `Auto` prefers direct HLS/MPEG-TS when possible, then tries same-origin proxy variants for providers that block CORS/Range; native video is used for common file extensions and ReactPlayer is the catch-all.
 
 For live MPEG-TS/FLV playback, latency chasing is enabled so playback can recover when it drifts behind the live edge. The HLS proxy rewrites same-origin playlist segment and key URLs through `/api/playback` to mitigate provider CORS failures; cross-origin CDN resources remain direct for safety. Auto mode also advances after a bounded startup timeout when a provider hangs without emitting a media error.

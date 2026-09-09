@@ -655,20 +655,13 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
   })();
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90">
-      <button
-        onClick={onClose}
-        className="absolute right-4 top-4 z-[10000] flex h-12 w-12 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/30 focus:outline-none focus:ring-2 focus:ring-white"
-        title="Close (Esc)"
-      >
-        <X size={28} />
-      </button>
-
-      <div className="relative flex h-full w-full flex-col">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pl-4 pr-20 py-2 text-white">
-          <div className="min-w-0">
+    <div className="fixed inset-0 z-[9999] h-[100dvh] w-full bg-black">
+      <div className="relative flex h-full min-h-0 w-full flex-col">
+        <div className="shrink-0 border-b border-white/10 bg-gray-950 px-3 py-2 text-white sm:px-4">
+          <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-bold">{title}</div>
-            <div className="text-[11px] uppercase tracking-wide text-gray-400">
+            <div className="truncate text-[11px] uppercase tracking-wide text-gray-400" title={`In use: ${TECH_LABELS[resolvedTech]}`}>
               In use: {TECH_LABELS[resolvedTech]}
               {isAuto && ladder.length > 1 && ` (auto ${autoIndex + 1}/${ladder.length})`}
               <span className={usesVercelBandwidth ? "ml-2 text-amber-300" : "ml-2 text-emerald-300"}>
@@ -676,33 +669,26 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
               </span>
             </div>
           </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <LocalHelperStatus onDark />
+            <button type="button" onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded bg-white/10 text-white hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white" title="Close (Esc)" aria-label="Close player">
+              <X size={22} />
+            </button>
+          </div>
+          </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <div className="flex w-full justify-end"><LocalHelperStatus onDark /></div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <label className="flex min-w-0 items-center gap-2 text-xs font-semibold">
+              Playback
+              <select aria-label="Playback method" value={selectedTech} onChange={(event) => {
+                const tech = event.target.value as PlayerTech;
+                setSelectedTech(tech);
+                if (tech === "auto") setAutoIndex(0);
+              }} className="h-9 min-w-0 max-w-[min(16rem,65vw)] rounded border border-white/25 bg-gray-900 px-2 text-xs text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400">
+                {availableTechs.map(tech => <option key={tech} value={tech}>{TECH_LABELS[tech]}</option>)}
+              </select>
+            </label>
             <PlayerAIHelp sourceUrl={sourceUrl} />
-            <div className="flex flex-wrap rounded border border-white/15 bg-white/5">
-              {availableTechs.map((tech) => {
-                const active = selectedTech === tech;
-                return (
-                  <button
-                    key={tech}
-                    type="button"
-                    onClick={() => {
-                      setSelectedTech(tech);
-                      if (tech === "auto") setAutoIndex(0);
-                    }}
-                    className={`px-2.5 py-1 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-white ${
-                      active
-                        ? "bg-blue-500 text-white"
-                        : "text-gray-300 hover:bg-white/10 hover:text-white"
-                    }`}
-                    title={`Use ${TECH_LABELS[tech]}`}
-                  >
-                    {TECH_LABELS[tech]}
-                  </button>
-                );
-              })}
-            </div>
             <button
               type="button"
               onClick={openInVlc}
@@ -731,7 +717,7 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
             >
               <Bug size={13} />
             </button>
-            <div className="flex items-center gap-4 text-xs text-gray-300">
+            <div className="ml-auto flex items-center gap-3 text-xs text-gray-300">
               {stats.res && <span>{stats.res}</span>}
               {stats.fps && <span>{stats.fps}</span>}
               {stats.speed && <span className="text-blue-300">{stats.speed}</span>}
@@ -739,7 +725,7 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
           </div>
         </div>
 
-        <div className="relative flex flex-1 items-center justify-center bg-black">
+        <div className="relative min-h-0 flex-1 bg-black">
           {showDebug && (
             <div className="absolute left-4 top-4 z-30 max-h-[70vh] w-[min(36rem,calc(100vw-2rem))] overflow-y-auto rounded border border-white/15 bg-black/90 p-3 font-mono text-[11px] text-gray-300">
               <div className="mb-2 flex items-center justify-between gap-2 font-bold text-white">
@@ -787,7 +773,7 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
           )}
 
           {error && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-black/80 p-8 text-center text-white">
+            <div className="absolute inset-0 z-20 overflow-y-auto bg-black/80 p-4 text-center text-white"><div className="flex min-h-full flex-col items-center justify-center gap-3">
               <AlertCircle size={48} className="text-red-400" />
               <p className="max-w-md text-lg">{error}</p>
               <p className="max-w-md text-sm text-gray-300">
@@ -814,6 +800,7 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
                 <Bug size={14} />
                 Open diagnostics
               </button>
+              </div>
             </div>
           )}
 
@@ -836,7 +823,7 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
             </div>
           )}
 
-          <div className="relative h-full w-full">
+          <div className="absolute inset-0 min-h-0 min-w-0">
             {resolvedTech === "local" || resolvedTech === "local-compatible" ? (
               <LocalVideoPlayer url={sourceUrl} mode={resolvedTech === "local" ? "remux" : "compatible"} onStatus={(message) => {
                 addDiagnostic("local-helper", message ? "info" : "ok", message || "Local video playing");
@@ -871,7 +858,7 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
                 controls
                 autoPlay
                 playsInline
-                className="h-full w-full"
+                className="h-full w-full object-contain"
                 onCanPlay={() => markPlayable(resolvedTech)}
                 onError={videoError}
               />

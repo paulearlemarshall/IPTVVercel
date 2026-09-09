@@ -54,9 +54,16 @@ export default function LocalVideoPlayer({ url, mode, onStatus }: { url: string;
       if (sessionId) void removeSession(sessionId);
     };
   }, [url, mode]);
-  return <div className="flex h-full w-full flex-col">
-    <p className="px-4 py-2 text-sm text-white" role="status">{message || "Playing through this PC · no Vercel video bandwidth"}</p>
-    <p className="px-4 text-xs text-gray-300">Local streaming starts from the beginning; seeking and subtitles are not supported yet. Compatibility mode uses more CPU.</p>
-    <video ref={videoRef} controls autoPlay playsInline className="min-h-0 flex-1 w-full" onPlaying={() => { playing.current = true; setMessage(""); }} />
+  return <div className="flex h-full min-h-0 w-full flex-col">
+    <div className="shrink-0 border-b border-white/10 px-3 py-1 text-xs text-gray-200 sm:px-4">
+      <p role="status">{message || "Playing locally · no Vercel video bandwidth"}</p>
+      <details className="mt-0.5 text-gray-400">
+        <summary className="w-fit cursor-pointer rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">Local playback notes</summary>
+        <p>Starts from the beginning; seeking and subtitles are not supported yet. Compatibility mode uses more CPU.</p>
+      </details>
+    </div>
+    <div className="relative min-h-0 flex-1">
+      <video ref={videoRef} controls autoPlay playsInline className="absolute inset-0 h-full w-full object-contain" onPlaying={() => { playing.current = true; setMessage(""); }} />
+    </div>
   </div>;
 }
