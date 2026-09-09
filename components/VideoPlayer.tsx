@@ -665,9 +665,8 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
       </button>
 
       <div className="relative flex h-full w-full flex-col">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-2 text-white">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pl-4 pr-20 py-2 text-white">
           <div className="min-w-0">
-            <LocalHelperStatus onDark />
             <div className="truncate text-sm font-bold">{title}</div>
             <div className="text-[11px] uppercase tracking-wide text-gray-400">
               In use: {TECH_LABELS[resolvedTech]}
@@ -679,6 +678,7 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex w-full justify-end"><LocalHelperStatus onDark /></div>
             <PlayerAIHelp sourceUrl={sourceUrl} />
             <div className="flex flex-wrap rounded border border-white/15 bg-white/5">
               {availableTechs.map((tech) => {

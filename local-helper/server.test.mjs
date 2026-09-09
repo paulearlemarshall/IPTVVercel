@@ -29,6 +29,13 @@ test('helper blocks untrusted requests and progressively remuxes and converts vi
     assert.match(await statusPage.text(), /Local IPTV playback helper/);
     assert.equal((await fetch(base, { headers: { origin: 'https://evil.example' } })).status, 403);
     assert.equal((await fetch(`${base}/health`)).status, 403);
+    assert.equal((await fetch(`${base}/status`)).status, 403);
+    assert.equal((await fetch(`${base}/status`, { headers: { 'sec-fetch-site': 'cross-site' } })).status, 403);
+    assert.equal((await fetch(`${base}/status`, { headers: { 'sec-fetch-site': 'same-origin' } })).status, 200);
+    assert.equal((await fetch(`${base}/status`, { headers: { origin: 'https://evil.example', 'sec-fetch-site': 'same-origin' } })).status, 403);
+    const script = await fetch(`${base}/status.js`);
+    assert.equal(script.status, 200);
+    assert.match(script.headers.get('content-type'), /javascript/);
     assert.equal((await fetch(`${base}/health`, { headers: { origin: 'https://evil.example' } })).status, 403);
     assert.equal((await fetch(`${base}/sessions`, { method: 'POST', headers, body: JSON.stringify({ url: 'http://untrusted.example/movie', mode: 'remux' }) })).status, 400);
     assert.equal((await fetch(`${base}/sessions`, { method: 'POST', headers, body: JSON.stringify({ url: `file:///etc/passwd`, mode: 'remux' }) })).status, 400);
@@ -38,6 +45,16 @@ test('helper blocks untrusted requests and progressively remuxes and converts vi
       const { id } = await created.json();
       const stream = await fetch(`${base}/sessions/${id}/stream`, { headers, signal: AbortSignal.timeout(15000) });
       assert.equal(stream.status, 200);
+      const live = await (await fetch(`${base}/status`, { headers })).json();
+      assert.equal(live.telemetrySchema, 1);
+      assert.ok(live.transfer.bytesSent > 0);
+      assert.equal(live.streams[0].input.videoCodec, 'h264');
+      assert.equal(live.streams[0].input.resolution, '160x90');
+      assert.equal(live.streams[0].input.fps, 15);
+      assert.equal(live.streams[0].output.container, 'mpegts');
+      assert.ok(live.streams[0].bytesSent > 0);
+      assert.ok(!JSON.stringify(live).includes(id));
+      assert.ok(!JSON.stringify(live).includes('/fixture.ts'));
       const bytes = Buffer.from(await stream.arrayBuffer());
       assert.ok(bytes.length > 188);
       const probe = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_name', '-of', 'json', '-i', 'pipe:0'], { input: bytes, windowsHide: true });
@@ -47,6 +64,23 @@ test('helper blocks untrusted requests and progressively remuxes and converts vi
       assert.equal((await fetch(`${base}/sessions/${id}/stream`, { headers })).status, 404);
     }
   } finally { helper.kill(); provider.close(); }
+});
+
+test('bounded diagnostic parser separates metadata and progress; output rate ages to zero', async () => {
+  const { PassThrough } = await import('node:stream');
+  const { createTelemetry, consumeDiagnostics, recordOutput, streamSnapshot } = await import('./telemetry.mjs');
+  const telemetry = createTelemetry(); telemetry.startedAt = 1000;
+  const stderr = new PassThrough(); consumeDiagnostics(telemetry, stderr);
+  stderr.write("Input #0, matroska,webm, from 'http://provider.test/SECRET':\n  Stream #0:0: Video: hevc, yuv420p, 1920x1080, 24 fps\n  Stream #0:1: Audio: ac3, 48000 Hz\nOutput #0, mpegts, to 'pipe:1':\n  Stream #0:0: Video: h264, yuv420p, 1920x1080, 24 fps\nframe=48\nfps=24\nout_time_us=2000000\nspeed=1.0x\nbitrate=N/A\nprogress=continue\n");
+  recordOutput(telemetry, 1000000, 2000);
+  const session = { source: 'https://provider.test/SECRET/movie.mkv?password=HIDDEN', mode: 'compatible', telemetry };
+  const sample = streamSnapshot(session, 0, 3000);
+  assert.equal(sample.input.videoCodec, 'hevc'); assert.equal(sample.output.videoCodec, 'h264');
+  assert.equal(sample.mediaSeconds, 2); assert.equal(sample.frames, 48); assert.equal(sample.processingFps, 24);
+  assert.equal(sample.currentMbps, 4); assert.equal(sample.outputKbps, null);
+  assert.ok(!JSON.stringify(sample).includes('SECRET')); assert.ok(!JSON.stringify(sample).includes('HIDDEN'));
+  assert.equal(streamSnapshot(session, 0, 9000).currentMbps, 0);
+  assert.equal(streamSnapshot(session, 0, 9000).state, 'no recent output');
 });
 
 test('missing FFmpeg is not ready; status HTML escapes dynamic values', async () => {

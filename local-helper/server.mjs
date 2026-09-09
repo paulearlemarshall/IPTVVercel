@@ -2,8 +2,11 @@ import http from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { readFile } from 'node:fs/promises';
+import { Transform } from 'node:stream';
 import dotenv from 'dotenv';
 import { healthSnapshot, statusPage } from './status.mjs';
+import { createTelemetry, recordOutput, consumeDiagnostics } from './telemetry.mjs';
 
 dotenv.config({ path: fileURLToPath(new URL('../.env.local', import.meta.url)), quiet: true });
 dotenv.config({ path: fileURLToPath(new URL('./.env.local', import.meta.url)), quiet: true });
@@ -15,22 +18,40 @@ const hosts = new Set([
 ]);
 const sessions = new Map();
 const ffmpeg = process.env.LOCAL_PLAYER_FFMPEG || 'ffmpeg';
+const totals = { bytesSent: 0, streamsStarted: 0 };
+const snapshot = () => healthSnapshot({ ffmpeg, port, origins, hosts, sessions, totals });
 const json = (res, status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
 const close = (id) => { const session = sessions.get(id); session?.child?.kill(); session?.response?.destroy(); sessions.delete(id); };
 
 const server = http.createServer(async (req, res) => {
   const pathname = new URL(req.url, `http://127.0.0.1:${port}`).pathname;
   res.setHeader('cache-control', 'no-store');
+  const hostAllowed = req.headers.host === `127.0.0.1:${port}`;
+  const localPageRequest = hostAllowed && !req.headers.origin && req.headers['sec-fetch-site'] === 'same-origin';
+  // Same-origin Fetch Metadata permits the local page's JSON refresh without
+  // weakening Origin checks on playback APIs. Arbitrary cross-site reads fail.
+  if (hostAllowed && req.method === 'GET' && pathname === '/status' &&
+      (localPageRequest || origins.has(req.headers.origin))) {
+    if (req.headers.origin) { res.setHeader('access-control-allow-origin', req.headers.origin); res.setHeader('vary', 'Origin'); }
+    try { return json(res, 200, await snapshot()); } catch { return json(res, 500, { error: 'Status unavailable' }); }
+  }
+  if (hostAllowed && req.method === 'GET' && pathname === '/status.js' &&
+      (!req.headers.origin || origins.has(req.headers.origin))) {
+    res.setHeader('content-type', 'text/javascript; charset=utf-8');
+    res.setHeader('x-content-type-options', 'nosniff');
+    try { return res.end(await readFile(new URL('./status-client.js', import.meta.url))); }
+    catch { return json(res, 500, { error: 'Status script unavailable' }); }
+  }
   // A top-level navigation normally has no Origin. Only the read-only HTML
   // page permits that exception; the session API retains its origin checks.
   if (req.headers.host === `127.0.0.1:${port}` && req.method === 'GET' && pathname === '/' &&
       (!req.headers.origin || origins.has(req.headers.origin))) {
     res.setHeader('content-type', 'text/html; charset=utf-8');
-    res.setHeader('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+    res.setHeader('content-security-policy', "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
     res.setHeader('x-frame-options', 'DENY');
     res.setHeader('referrer-policy', 'no-referrer');
     res.setHeader('x-content-type-options', 'nosniff');
-    try { return res.end(statusPage(await healthSnapshot({ ffmpeg, port, origins, hosts, sessions }))); }
+    try { return res.end(statusPage(await snapshot())); }
     catch { return json(res, 500, { error: 'Status unavailable' }); }
   }
   // Loopback binding plus Host and exact Origin checks prevent other websites
@@ -48,7 +69,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(204); return res.end();
   }
   try {
-    if (pathname === '/health' && req.method === 'GET') return json(res, 200, await healthSnapshot({ ffmpeg, port, origins, hosts, sessions }));
+    if (pathname === '/health' && req.method === 'GET') return json(res, 200, await snapshot());
     if (pathname === '/sessions' && req.method === 'POST') {
       if (!req.headers['content-type']?.startsWith('application/json')) return json(res, 415, { error: 'JSON required' });
       let body = '';
@@ -73,7 +94,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'DELETE') { close(id); return json(res, 200, { stopped: true }); }
     if (req.method !== 'GET' || !pathname.endsWith('/stream')) return json(res, 405, { error: 'Method not allowed' });
     if (session.child) return json(res, 409, { error: 'Session already playing' });
-    const args = ['-hide_banner', '-loglevel', 'error', '-nostdin', '-re', '-rw_timeout', '15000000',
+    const args = ['-hide_banner', '-loglevel', 'info', '-nostats', '-stats_period', '1', '-progress', 'pipe:2', '-nostdin', '-re', '-rw_timeout', '15000000',
       '-protocol_whitelist', 'http,https,tcp,tls,crypto', '-i', session.source,
       '-map', '0:v:0', '-map', '0:a:0?', '-sn', '-dn',
       ...(session.mode === 'compatible' ? ['-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency', '-pix_fmt', 'yuv420p', '-threads', '2'] : ['-c:v', 'copy']),
@@ -81,12 +102,19 @@ const server = http.createServer(async (req, res) => {
     const child = spawn(ffmpeg, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     session.child = child;
     session.response = res;
-    // FFmpeg errors can contain provider passwords. Never forward stderr.
-    child.stderr.resume();
+    session.telemetry = createTelemetry();
+    totals.streamsStarted += 1;
+    consumeDiagnostics(session.telemetry, child.stderr);
     child.on('error', () => { if (!res.headersSent) json(res, 503, { error: 'FFmpeg unavailable. Install it or set LOCAL_PLAYER_FFMPEG.' }); else res.destroy(); close(id); });
     child.on('exit', code => { if (code && !res.headersSent) json(res, 502, { error: 'FFmpeg could not open or convert this stream. Try compatibility mode or check the provider.' }); else if (code) res.destroy(); });
     res.setHeader('content-type', 'video/mp2t');
-    child.stdout.pipe(res);
+    const counter = new Transform({ transform(chunk, _encoding, done) {
+      recordOutput(session.telemetry, chunk.length);
+      totals.bytesSent += chunk.length;
+      done(null, chunk);
+    } });
+    child.stdout.pipe(counter).pipe(res);
+    res.on('close', () => counter.destroy());
     res.on('close', () => close(id));
   } catch {
     if (!res.headersSent) json(res, 500, { error: 'Local playback request failed' }); else res.destroy();

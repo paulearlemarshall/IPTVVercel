@@ -281,7 +281,6 @@ export default function HomePage() {
   return (
     <main className="flex h-screen flex-col">
       <header className="flex flex-wrap items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
-        <LocalHelperStatus />
         {activeProfile && (
           <button
             onClick={() => setSidebarOpen((v) => !v)}
@@ -336,6 +335,7 @@ export default function HomePage() {
           <DbLogModal />
           <StatsModal />
           <ThemeToggle />
+          <LocalHelperStatus />
         </div>
       </header>
       <div className="relative flex flex-1 overflow-hidden">
