@@ -6,6 +6,7 @@ import Hls from "hls.js";
 import mpegts from "mpegts.js";
 import LocalVideoPlayer from "./LocalVideoPlayer";
 import PlayerAIHelp from "./PlayerAIHelp";
+import LocalHelperStatus from "./LocalHelperStatus";
 import { AlertCircle, Bug, Copy, ExternalLink, Loader2, SkipForward, X } from "lucide-react";
 
 type PlayerTech = "auto" | "native" | "react-player" | "hls" | "hls-proxy" | "mpegts" | "mpegts-proxy" | "flv" | "proxy" | "transcode" | "local" | "local-compatible";
@@ -666,6 +667,7 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
       <div className="relative flex h-full w-full flex-col">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-2 text-white">
           <div className="min-w-0">
+            <LocalHelperStatus onDark />
             <div className="truncate text-sm font-bold">{title}</div>
             <div className="text-[11px] uppercase tracking-wide text-gray-400">
               In use: {TECH_LABELS[resolvedTech]}

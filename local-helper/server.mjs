@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
+import { healthSnapshot, statusPage } from './status.mjs';
 
 dotenv.config({ path: fileURLToPath(new URL('../.env.local', import.meta.url)), quiet: true });
 dotenv.config({ path: fileURLToPath(new URL('./.env.local', import.meta.url)), quiet: true });
@@ -18,6 +19,20 @@ const json = (res, status, body) => { res.writeHead(status, { 'content-type': 'a
 const close = (id) => { const session = sessions.get(id); session?.child?.kill(); session?.response?.destroy(); sessions.delete(id); };
 
 const server = http.createServer(async (req, res) => {
+  const pathname = new URL(req.url, `http://127.0.0.1:${port}`).pathname;
+  res.setHeader('cache-control', 'no-store');
+  // A top-level navigation normally has no Origin. Only the read-only HTML
+  // page permits that exception; the session API retains its origin checks.
+  if (req.headers.host === `127.0.0.1:${port}` && req.method === 'GET' && pathname === '/' &&
+      (!req.headers.origin || origins.has(req.headers.origin))) {
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    res.setHeader('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+    res.setHeader('x-frame-options', 'DENY');
+    res.setHeader('referrer-policy', 'no-referrer');
+    res.setHeader('x-content-type-options', 'nosniff');
+    try { return res.end(statusPage(await healthSnapshot({ ffmpeg, port, origins, hosts, sessions }))); }
+    catch { return json(res, 500, { error: 'Status unavailable' }); }
+  }
   // Loopback binding plus Host and exact Origin checks prevent other websites
   // and DNS rebinding from using this service. Session URLs are bearer secrets.
   if (req.headers.host !== `127.0.0.1:${port}` || !origins.has(req.headers.origin)) {
@@ -32,9 +47,8 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('access-control-allow-private-network', 'true');
     res.writeHead(204); return res.end();
   }
-  const pathname = new URL(req.url, `http://127.0.0.1:${port}`).pathname;
   try {
-    if (pathname === '/health' && req.method === 'GET') return json(res, 200, { version: 1 });
+    if (pathname === '/health' && req.method === 'GET') return json(res, 200, await healthSnapshot({ ffmpeg, port, origins, hosts, sessions }));
     if (pathname === '/sessions' && req.method === 'POST') {
       if (!req.headers['content-type']?.startsWith('application/json')) return json(res, 415, { error: 'JSON required' });
       let body = '';

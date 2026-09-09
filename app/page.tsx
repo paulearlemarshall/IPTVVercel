@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import AccountModal from "@/components/AccountModal";
+import LocalHelperStatus from "@/components/LocalHelperStatus";
 import CatalogUpdateButtons from "@/components/CatalogUpdateButtons";
 import DbLogModal from "@/components/DbLogModal";
 import ServerSelector from "@/components/ServerSelector";
@@ -280,6 +281,7 @@ export default function HomePage() {
   return (
     <main className="flex h-screen flex-col">
       <header className="flex flex-wrap items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
+        <LocalHelperStatus />
         {activeProfile && (
           <button
             onClick={() => setSidebarOpen((v) => !v)}

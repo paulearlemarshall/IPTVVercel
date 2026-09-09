@@ -15,6 +15,19 @@ test('helper blocks untrusted requests and progressively remuxes and converts vi
     await Promise.race([once(helper.stdout, 'data'), new Promise((_, reject) => { const timer = setTimeout(() => reject(new Error('Helper startup timeout')), 5000); timer.unref(); })]);
     const base = 'http://127.0.0.1:19877';
     const headers = { origin: 'http://localhost:3000', 'content-type': 'application/json' };
+    const health = await (await fetch(`${base}/health`, { headers })).json();
+    assert.equal(health.healthSchema, 2);
+    assert.equal(health.ready, true);
+    assert.equal(health.ffmpeg.aac, true);
+    assert.equal(health.ffmpeg.h264, true);
+    assert.equal(health.sessions.allocated, 0);
+    assert.equal(typeof health.system.freeMemoryMB, 'number');
+    const statusPage = await fetch(base);
+    assert.equal(statusPage.status, 200);
+    assert.equal(statusPage.headers.get('x-frame-options'), 'DENY');
+    assert.ok(statusPage.headers.get('content-security-policy').includes("frame-ancestors 'none'"));
+    assert.match(await statusPage.text(), /Local IPTV playback helper/);
+    assert.equal((await fetch(base, { headers: { origin: 'https://evil.example' } })).status, 403);
     assert.equal((await fetch(`${base}/health`)).status, 403);
     assert.equal((await fetch(`${base}/health`, { headers: { origin: 'https://evil.example' } })).status, 403);
     assert.equal((await fetch(`${base}/sessions`, { method: 'POST', headers, body: JSON.stringify({ url: 'http://untrusted.example/movie', mode: 'remux' }) })).status, 400);
@@ -34,4 +47,16 @@ test('helper blocks untrusted requests and progressively remuxes and converts vi
       assert.equal((await fetch(`${base}/sessions/${id}/stream`, { headers })).status, 404);
     }
   } finally { helper.kill(); provider.close(); }
+});
+
+test('missing FFmpeg is not ready; status HTML escapes dynamic values', async () => {
+  const { healthSnapshot, statusPage } = await import('./status.mjs');
+  const health = await healthSnapshot({ ffmpeg: 'intentionally-missing-ffmpeg-test', port: 19877, origins: new Set(['<script>alert(1)</script>']), hosts: new Set(), sessions: new Map() });
+  assert.equal(health.ready, false);
+  assert.equal(health.ffmpeg.available, false);
+  assert.equal(health.modes.compatible, false);
+  assert.equal(health.problems.length, 2);
+  const html = statusPage(health);
+  assert.ok(!html.includes('<script>'));
+  assert.ok(html.includes('&lt;script&gt;'));
 });

@@ -103,6 +103,8 @@ All `xc_*` cache tables carry `updated_at` (drives TTL) and cascade-delete with 
 
 ## Player engines (`components/VideoPlayer.tsx`)
 
+`LocalHelperStatus` appears in both the main header and player. `useLocalHelperStatus` uses one shared external store, a visibility-aware 15-second poll, an eight-second timeout and coalesced retries. Extended helper readiness is `GET /health` with playback `version:1` and `healthSchema:2`; legacy replies are not treated as ready. `local-helper/status.mjs` caches bounded asynchronous FFmpeg/encoder checks and computes current system/session state. A read-only escaped HTML status page at the loopback root is the sole missing-Origin exception; all API routes retain exact-Origin checks. It exposes no stream URLs, credentials or session IDs. The AI specification in `lib/local-helper-spec.ts` describes both contracts.
+
 Manual `local` and `local-compatible` engines render `LocalVideoPlayer`, which creates an origin-bound session on a loopback Node helper (`local-helper/server.mjs`). The browser passes its existing direct stream URL in a JSON POST; video returns directly from the helper as progressive MPEG-TS. Fast mode copies video and encodes AAC; compatibility encodes H.264/AAC. Neither carries video through Vercel. Sessions stop on disconnect/unmount; local settings are never sent to Vercel. See README for setup, trusted-provider boundaries and the initial no-seeking/no-subtitles limitation.
 
 `auto | native | react-player | hls | hls-proxy | mpegts | mpegts-proxy | proxy | transcode`
