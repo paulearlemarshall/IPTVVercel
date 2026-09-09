@@ -5,6 +5,7 @@ import ReactPlayer from "react-player";
 import Hls from "hls.js";
 import mpegts from "mpegts.js";
 import LocalVideoPlayer from "./LocalVideoPlayer";
+import PlayerAIHelp from "./PlayerAIHelp";
 import { AlertCircle, Bug, Copy, ExternalLink, Loader2, SkipForward, X } from "lucide-react";
 
 type PlayerTech = "auto" | "native" | "react-player" | "hls" | "hls-proxy" | "mpegts" | "mpegts-proxy" | "flv" | "proxy" | "transcode" | "local" | "local-compatible";
@@ -676,6 +677,7 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <PlayerAIHelp sourceUrl={sourceUrl} />
             <div className="flex flex-wrap rounded border border-white/15 bg-white/5">
               {availableTechs.map((tech) => {
                 const active = selectedTech === tech;

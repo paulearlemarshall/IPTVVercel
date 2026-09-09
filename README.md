@@ -89,6 +89,8 @@ Browsers can't always play the **MKV** container natively. The **MKV→MP4** eng
 
 ## Local browser playback (desktop Chrome / Edge)
 
+The playback toolbar's **AI help** button opens a complete, self-contained helper implementation specification. **Copy for Windows**, **Copy for macOS**, and **Copy for Linux** each copy the entire protocol plus platform-specific setup and verification requirements, ready to paste into another AI assistant. The text includes only the current website origin and provider host, never the full stream URL or credentials. The visible specification is selectable if clipboard permission is unavailable. Specifications live in `lib/local-helper-spec.ts`; keep their API/FFmpeg details synchronized with the helper and `LocalVideoPlayer` when changing the protocol.
+
 The player offers **Local fast (PC bandwidth)** and **Local compatibility (PC bandwidth)**. These fetch video on the viewing PC, without sending video bytes through Vercel. Catalogue requests still use Vercel. Existing engines remain available; local modes are selected manually.
 
 Install Node.js 22+ and FFmpeg (including the `libx264` and AAC encoders). From the repository directory, run `npm ci`, configure `.env.local`, then run:
