@@ -87,6 +87,26 @@ For live MPEG-TS/FLV playback, latency chasing is enabled so playback can recove
 
 Browsers can't always play the **MKV** container natively. The **MKV→MP4** engine downloads the file (via the same-origin proxy) and remuxes it client-side with ffmpeg.wasm (single-threaded core from CDN, so no COOP/COEP headers needed). It copies the video stream and converts audio to AAC; it does not turn HEVC into H.264. It's best for smaller H.264 VOD; large or HEVC/4K files may exceed browser memory or remain unsupported — use VLC or a server-side converter for those. The libraries are lazy-loaded, so the main bundle is unaffected.
 
+## Local browser playback (desktop Chrome / Edge)
+
+The player offers **Local fast (PC bandwidth)** and **Local compatibility (PC bandwidth)**. These fetch video on the viewing PC, without sending video bytes through Vercel. Catalogue requests still use Vercel. Existing engines remain available; local modes are selected manually.
+
+Install Node.js 22+ and FFmpeg (including the `libx264` and AAC encoders). From the repository directory, run `npm ci`, configure `.env.local`, then run:
+
+```powershell
+npm run player:local
+```
+
+The helper reads existing `XC_SERVER_n` entries as trusted provider hosts. Configure `LOCAL_PLAYER_ORIGINS` with the exact website origins permitted to use it, comma-separated, e.g. `http://localhost:3000,https://your-app.vercel.app`. Optional `LOCAL_PLAYER_HOSTS` adds trusted provider `hostname:port` values; optional `LOCAL_PLAYER_FFMPEG` points to the FFmpeg executable. Do not put these local settings in Vercel. Restart the helper after configuration changes.
+
+Open the app on the **same PC**, select a local mode, and allow local-network access if the browser prompts. The browser connects to `http://127.0.0.1:19876`. The helper listens only on loopback, checks Host and exact Origin, requires JSON session creation, restricts initial sources to configured providers, and uses short-lived random session URLs. FFmpeg follows provider redirects and playlists, so configure only trusted providers. Do not expose the helper port to the internet. Source URLs already supplied by the app are passed to local FFmpeg; privileged local processes can see its command line. No credentials or session tokens are saved in browser storage or printed by the helper.
+
+Fast mode copies video and converts audio to stereo AAC. Compatibility mode converts video to H.264 as well and can require substantial CPU, especially for 4K. Both stream MPEG-TS progressively and start before the whole file downloads. This initial version starts VOD from the beginning and does **not** support seeking, subtitles or alternate audio tracks. Closing the player or changing engines stops the local FFmpeg process; unused sessions expire after 30 seconds. At most two sessions may exist at a time. No startup service is installed: keep the helper terminal running while watching.
+
+If connecting fails, check the helper is running, the website origin is allowed, and browser local-network permission is granted. If fast mode has no picture, try compatibility. If both fail, check FFmpeg installation/provider access; detailed FFmpeg stderr is intentionally suppressed because it may contain credentials.
+
+Local-only helper settings may also go in ignored `local-helper/.env.local`; existing process environment and root `.env.local` values take precedence. Integration verification: `node --test local-helper/server.test.mjs` (requires FFmpeg and ffprobe).
+
 ## Catalogue cache
 
 Neon tables back the proxy: category buckets, per-category stream lists, VOD/series metadata, and series seasons/episodes (flattened, with the full raw payload retained). On a request the proxy checks Neon first for the active `(profile, server, section, …)`; fresh rows are returned, stale (older than `XC_DB_CACHE_TTL_MS`) or missing rows trigger an upstream fetch that re-persists. Writes are batched and **replace-on-refresh** removes rows that disappeared upstream. EN-only catalogue updates write a filtered subset without deleting non-EN rows.

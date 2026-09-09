@@ -4,9 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactPlayer from "react-player";
 import Hls from "hls.js";
 import mpegts from "mpegts.js";
+import LocalVideoPlayer from "./LocalVideoPlayer";
 import { AlertCircle, Bug, Copy, ExternalLink, Loader2, SkipForward, X } from "lucide-react";
 
-type PlayerTech = "auto" | "native" | "react-player" | "hls" | "hls-proxy" | "mpegts" | "mpegts-proxy" | "flv" | "proxy" | "transcode";
+type PlayerTech = "auto" | "native" | "react-player" | "hls" | "hls-proxy" | "mpegts" | "mpegts-proxy" | "flv" | "proxy" | "transcode" | "local" | "local-compatible";
 
 type TranscodeStatus = "idle" | "loading" | "running" | "done" | "error";
 
@@ -47,6 +48,8 @@ interface VideoPlayerProps {
 
 const TECH_LABELS: Record<PlayerTech, string> = {
   auto: "Auto",
+  local: "Local fast (PC bandwidth)",
+  "local-compatible": "Local compatibility (PC bandwidth)",
   native: "Native",
   "react-player": "ReactPlayer",
   hls: "HLS.js",
@@ -155,8 +158,8 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
     (["proxy", "hls-proxy", "mpegts-proxy", "transcode"] as PlayerTech[]).includes(resolvedTech);
   const availableTechs = useMemo<PlayerTech[]>(
     () => (sourceProxyUrl
-      ? ["auto", "proxy", "native", "react-player", "hls", "hls-proxy", "mpegts", "mpegts-proxy", "flv", "transcode"]
-      : ["auto", "native", "react-player", "hls", "mpegts", "flv", "transcode"]),
+      ? ["auto", "local", "local-compatible", "proxy", "native", "react-player", "hls", "hls-proxy", "mpegts", "mpegts-proxy", "flv", "transcode"]
+      : ["auto", "local", "local-compatible", "native", "react-player", "hls", "mpegts", "flv", "transcode"]),
     [sourceProxyUrl],
   );
 
@@ -178,7 +181,7 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
     hlsMediaRecoveryUsed.current = false;
     attemptStartedAt.current = performance.now();
     setAttempts((prev) => [...prev, { tech: resolvedTech, status: "trying", ms: 0 }]);
-    addDiagnostic("engine", "info", `Trying ${TECH_LABELS[resolvedTech]} (${usesVercelBandwidth ? "Vercel proxy" : "direct provider"})`);
+    addDiagnostic("engine", "info", `Trying ${TECH_LABELS[resolvedTech]} (${usesVercelBandwidth ? "Vercel proxy" : resolvedTech.startsWith("local") ? "local PC helper" : "direct provider"})`);
     console.debug(`[player] attempt tech=${resolvedTech} source=${usesVercelBandwidth ? "proxy" : "direct"}`);
   }, [resolvedTech, playbackUrl, addDiagnostic, usesVercelBandwidth]);
 
@@ -283,7 +286,7 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
       section,
       streamId,
       engine: TECH_LABELS[resolvedTech],
-      transport: usesVercelBandwidth ? "vercel-proxy" : "direct-provider",
+      transport: usesVercelBandwidth ? "vercel-proxy" : resolvedTech.startsWith("local") ? "local-helper" : "direct-provider",
       source: redactedUrl(sourceUrl),
       proxySource: sourceProxyUrl ? redactedUrl(sourceProxyUrl) : null,
       attempts,
@@ -621,7 +624,7 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
   // Give Auto mode a bounded chance to move to its next engine instead of
   // leaving the player blank forever. Remuxing is intentionally excluded.
   useEffect(() => {
-    if (resolvedTech === "transcode") return;
+    if (resolvedTech === "transcode" || resolvedTech === "local" || resolvedTech === "local-compatible") return;
     const timeout = window.setTimeout(() => {
       if (!attemptPlayable.current) {
         failPlayback(`${TECH_LABELS[resolvedTech]} did not start within 15 seconds.`);
@@ -667,13 +670,13 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
               In use: {TECH_LABELS[resolvedTech]}
               {isAuto && ladder.length > 1 && ` (auto ${autoIndex + 1}/${ladder.length})`}
               <span className={usesVercelBandwidth ? "ml-2 text-amber-300" : "ml-2 text-emerald-300"}>
-                {usesVercelBandwidth ? "· video via Vercel" : "· video direct from provider"}
+                {usesVercelBandwidth ? "· video via Vercel" : resolvedTech.startsWith("local") ? "· video via this PC" : "· video direct from provider"}
               </span>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <div className="flex overflow-hidden rounded border border-white/15 bg-white/5">
+            <div className="flex flex-wrap rounded border border-white/15 bg-white/5">
               {availableTechs.map((tech) => {
                 const active = selectedTech === tech;
                 return (
@@ -830,7 +833,12 @@ export default function VideoPlayer({ url, proxyUrl, alternateUrl, alternateProx
           )}
 
           <div className="relative h-full w-full">
-            {resolvedTech === "react-player" ? (
+            {resolvedTech === "local" || resolvedTech === "local-compatible" ? (
+              <LocalVideoPlayer url={sourceUrl} mode={resolvedTech === "local" ? "remux" : "compatible"} onStatus={(message) => {
+                addDiagnostic("local-helper", message ? "info" : "ok", message || "Local video playing");
+                if (!message) markPlayable(resolvedTech);
+              }} />
+            ) : resolvedTech === "react-player" ? (
               <ReactPlayer
                 src={playbackUrl}
                 controls

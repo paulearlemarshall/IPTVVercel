@@ -103,6 +103,8 @@ All `xc_*` cache tables carry `updated_at` (drives TTL) and cascade-delete with 
 
 ## Player engines (`components/VideoPlayer.tsx`)
 
+Manual `local` and `local-compatible` engines render `LocalVideoPlayer`, which creates an origin-bound session on a loopback Node helper (`local-helper/server.mjs`). The browser passes its existing direct stream URL in a JSON POST; video returns directly from the helper as progressive MPEG-TS. Fast mode copies video and encodes AAC; compatibility encodes H.264/AAC. Neither carries video through Vercel. Sessions stop on disconnect/unmount; local settings are never sent to Vercel. See README for setup, trusted-provider boundaries and the initial no-seeking/no-subtitles limitation.
+
 `auto | native | react-player | hls | hls-proxy | mpegts | mpegts-proxy | proxy | transcode`
 
 - **Auto** → `proxy` when a proxyUrl exists, else by extension (`.m3u8`→hls, `.ts`→mpegts, mp4/webm/…→native, else react-player).
